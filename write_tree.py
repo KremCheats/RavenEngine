@@ -388,10 +388,9 @@ static bool parseConfig(NSData* data) {
         for (NSString* k in feats) g_features[toStd(k)] = [feats[k] boolValue];
 
     g_assets.clear();
-    NSDictionary*View assets = d[@"assets"];
-    if ([assets isProjectKindOfClass:[NSDictionary class]])
-        for (NSStringion* k in assets) g_assets[toStd(k)] =();
- toStd(assets[k]);
+    NSDictionary* assets = d[@"assets"];
+    if ([assets isKindOfClass:[NSDictionary class]])
+        for (NSString* k in assets) g_assets[toStd(k)] = toStd(assets[k]);
 
     g_fetched = true;
     snprintf(g_status, sizeof(g_status), "config v%s (%zu offs)",
@@ -477,7 +476,8 @@ namespace IL2CPP {
     void* readListItems(void* obj, uint32_t itemsOffset);
     int   readListCount(void* obj, uint32_t countOffset);
 
-    Matrix4x4 get}
+    Matrix4x4 getViewProjection();
+}
 #endif
 """)
 
