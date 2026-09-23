@@ -1050,7 +1050,7 @@ static void forceLandscape(void) {
 // ==================================================================
 // RVSlider
 // ==================================================================
-@implementation RVSlider { UIView* _track; UIView* _fill; UIView* _thumb; float _t; BOOL _dragging; }
+@implementation RVSlider { UIView* _track; UIView* _fill; UIView* _thumb; float _t; }
 - (instancetype)init {
     if ((self = [super initWithFrame:CGRectMake(0, 0, 200, 20)])) {
         self.userInteractionEnabled = YES;
@@ -1116,7 +1116,6 @@ static void forceLandscape(void) {
 }
 - (void)onDrag:(UIPanGestureRecognizer*)g {
     if (g.state == UIGestureRecognizerStateBegan) {
-        _dragging = YES;
         UIImpactFeedbackGenerator* h = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
         [h impactOccurred];
         if (RavenSettings::animations) {
@@ -1133,7 +1132,6 @@ static void forceLandscape(void) {
     if (self.onChange) self.onChange(v);
 
     if (g.state == UIGestureRecognizerStateEnded || g.state == UIGestureRecognizerStateCancelled) {
-        _dragging = NO;
         if (RavenSettings::animations) {
             [UIView animateWithDuration:0.18 animations:^{ self->_thumb.transform = CGAffineTransformIdentity; }];
         } else {
@@ -1228,6 +1226,7 @@ static void forceLandscape(void) {
                                           image:nil
                                      identifier:nil
                                         handler:^(__kindof UIAction* action) {
+            (void)action;
             RVSelector* selfRef = weakSelf;
             if (!selfRef) return;
             selfRef->_selectedIndex = i;
