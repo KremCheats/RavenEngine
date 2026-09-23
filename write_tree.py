@@ -388,9 +388,10 @@ static bool parseConfig(NSData* data) {
         for (NSString* k in feats) g_features[toStd(k)] = [feats[k] boolValue];
 
     g_assets.clear();
-    NSDictionary* assets = d[@"assets"];
-    if ([assets isKindOfClass:[NSDictionary class]])
-        for (NSString* k in assets) g_assets[toStd(k)] = toStd(assets[k]);
+    NSDictionary*View assets = d[@"assets"];
+    if ([assets isProjectKindOfClass:[NSDictionary class]])
+        for (NSStringion* k in assets) g_assets[toStd(k)] =();
+ toStd(assets[k]);
 
     g_fetched = true;
     snprintf(g_status, sizeof(g_status), "config v%s (%zu offs)",
@@ -476,8 +477,7 @@ namespace IL2CPP {
     void* readListItems(void* obj, uint32_t itemsOffset);
     int   readListCount(void* obj, uint32_t countOffset);
 
-    Matrix4x4 getViewProjection();
-}
+    Matrix4x4 get}
 #endif
 """)
 
@@ -808,6 +808,7 @@ w("Src/Menu.mm", r"""
 #import "IL2CPP.h"
 #import "Updater.h"
 #import "Settings.h"
+#import <objc/runtime.h>
 
 #define C_WIN      [UIColor colorWithRed:0.043 green:0.043 blue:0.055 alpha:0.97]
 #define C_HEAD     [UIColor colorWithRed:0.051 green:0.051 blue:0.063 alpha:1.0]
@@ -822,7 +823,6 @@ w("Src/Menu.mm", r"""
 #define C_SEC      [UIColor colorWithRed:0.573 green:0.573 blue:0.608 alpha:1.0]
 #define C_MUTE     [UIColor colorWithRed:0.384 green:0.384 blue:0.420 alpha:1.0]
 
-// Landscape-only reference dimensions
 static const CGFloat kRefW       = 860;
 static const CGFloat kRefH       = 500;
 static const CGFloat kHeaderH    = 108;
@@ -837,9 +837,6 @@ static const CGFloat kRowHBig    = 46;
 static const CGFloat kScaleMax   = 1.00;
 static const CGFloat kScaleFloor = 0.40;
 
-// ==================================================================
-// async image loading (NSCache + disk, never blocks main thread)
-// ==================================================================
 static NSCache* g_imgCache = nil;
 typedef void(^ImgBlock)(UIImage*);
 
@@ -907,20 +904,15 @@ static NSUInteger raven_landscape_mask(id self, SEL _cmd) {
 }
 
 static void forceLandscape(void) {
-    // Swizzle every UIViewController's supportedInterfaceOrientations to landscape.
-    // Applies to Combat Master only since the dylib is injected into that process.
     Method m = class_getInstanceMethod([UIViewController class],
                                        @selector(supportedInterfaceOrientations));
     if (m) {
-        static dispatch_once_t once;
-        dispatch_once(&once, ^{
-            method_setImplementation(m, (IMP)raven_landscape_mask);
-        });
+        method_setImplementation(m, (IMP)raven_landscape_mask);
     }
 }
 
 // ==================================================================
-// RavenWindow — pass-through by default
+// RavenWindow
 // ==================================================================
 @implementation RavenWindow
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -954,7 +946,7 @@ static void forceLandscape(void) {
 @end
 
 // ==================================================================
-// RVToggle — clean 38x20 pill, elevated knob
+// RVToggle
 // ==================================================================
 @implementation RVToggle { UIView* _track; UIView* _knob; }
 - (instancetype)init {
@@ -1003,7 +995,7 @@ static void forceLandscape(void) {
 @end
 
 // ==================================================================
-// RVSlider — thin 3px track, 12px thumb
+// RVSlider
 // ==================================================================
 @implementation RVSlider { UIView* _track; UIView* _fill; UIView* _thumb; float _t; }
 - (instancetype)init {
@@ -1118,7 +1110,6 @@ static void forceLandscape(void) {
     if (self.window) return;
     [[RavenESP shared] attach];
 
-    // Force landscape.
     forceLandscape();
 
     self.tabButtons    = [NSMutableArray array];
@@ -1145,7 +1136,6 @@ static void forceLandscape(void) {
     self.window.hidden = NO;
     [self attachToScene];
 
-    // Force geometry update to landscape.
     if (@available(iOS 16.0, *)) {
         UIWindowScene* scene = self.window.windowScene;
         if (scene) {
@@ -1388,7 +1378,6 @@ static void forceLandscape(void) {
     [self selectTab:0];
 }
 
-// ---------------- HEADER — banner fills branding area ----------------
 - (void)buildHeader:(CGRect)r {
     self.headerView = [[UIView alloc] initWithFrame:r];
     self.headerView.backgroundColor = C_HEAD;
@@ -1399,10 +1388,7 @@ static void forceLandscape(void) {
     line.backgroundColor = [C_RED colorWithAlphaComponent:0.35];
     [self.headerView addSubview:line];
 
-    // Right-side controls footprint
     CGFloat controlsW = 96;
-
-    // Banner container: fills the branding zone — inset left, right stops before controls
     CGFloat bannerX = 12;
     CGFloat bannerY = 8;
     CGFloat bannerW = r.size.width - controlsW - bannerX - 12;
@@ -1416,7 +1402,6 @@ static void forceLandscape(void) {
     wm.tag = 801;
     [self.headerView addSubview:wm];
 
-    // Fallback title
     UILabel* fallback = lbl(@"RAVEN", 26, C_TEXT, YES);
     fallback.frame = CGRectMake(bannerX, 0, bannerW, r.size.height);
     fallback.tag = 800;
@@ -1431,7 +1416,6 @@ static void forceLandscape(void) {
         weakFB.hidden = YES;
     });
 
-    // Close (right)
     UIButton* close = [UIButton buttonWithType:UIButtonTypeSystem];
     close.frame = CGRectMake(r.size.width - 44, (r.size.height - 30)/2, 30, 30);
     [close setTitle:@"X" forState:UIControlStateNormal];
@@ -1440,7 +1424,6 @@ static void forceLandscape(void) {
     [close addTarget:self action:@selector(togglePanel) forControlEvents:UIControlEventTouchUpInside];
     [self.headerView addSubview:close];
 
-    // Minimize (left of close)
     UIButton* min = [UIButton buttonWithType:UIButtonTypeSystem];
     min.frame = CGRectMake(r.size.width - 82, (r.size.height - 30)/2, 30, 30);
     [min setTitle:@"—" forState:UIControlStateNormal];
@@ -1481,13 +1464,11 @@ static void forceLandscape(void) {
     ];
 }
 
-// ---------------- SIDEBAR — full-bleed art, light tint ----------------
 - (void)buildSidebar:(CGRect)r {
     self.sidebarView = [[UIView alloc] initWithFrame:r];
     self.sidebarView.backgroundColor = C_SIDE;
     self.sidebarView.clipsToBounds = YES;
 
-    // Full-bleed background, aspect-fill, centered crop.
     UIImageView* bg = [[UIImageView alloc] initWithFrame:self.sidebarView.bounds];
     bg.contentMode = UIViewContentModeScaleAspectFill;
     bg.clipsToBounds = YES;
@@ -1500,13 +1481,11 @@ static void forceLandscape(void) {
         if (img) weakBG.image = img;
     });
 
-    // Light tint only — the art should stay visible.
     UIView* tint = [[UIView alloc] initWithFrame:self.sidebarView.bounds];
     tint.backgroundColor = [UIColor colorWithRed:0.02 green:0.02 blue:0.04 alpha:0.35];
     tint.userInteractionEnabled = NO;
     [self.sidebarView addSubview:tint];
 
-    // Top fade so tabs at top stay readable.
     CAGradientLayer* topFade = [CAGradientLayer layer];
     topFade.frame = CGRectMake(0, 0, r.size.width, r.size.height * 0.6);
     topFade.colors = @[
@@ -1517,12 +1496,10 @@ static void forceLandscape(void) {
     topFade.endPoint = CGPointMake(0.5, 1.0);
     [self.sidebarView.layer addSublayer:topFade];
 
-    // Right separator
     UIView* sep = [[UIView alloc] initWithFrame:CGRectMake(r.size.width - 1, 0, 1, r.size.height)];
     sep.backgroundColor = C_BORDER;
     [self.sidebarView addSubview:sep];
 
-    // Tabs
     NSArray* defs = [self tabDefs];
     CGFloat y = 14;
     for (NSInteger i = 0; i < defs.count; i++) {
@@ -1552,7 +1529,6 @@ static void forceLandscape(void) {
         y += kTabH + 4;
     }
 
-    // Motto — shown ONCE at bottom, clean.
     UILabel* motto = [[UILabel alloc] initWithFrame:CGRectMake(0, r.size.height - 42, r.size.width, 30)];
     motto.text = @"SEE MORE.\nBE BETTER.";
     motto.numberOfLines = 2;
@@ -1684,8 +1660,6 @@ static void forceLandscape(void) {
     card.frame = CGRectMake(0, 0, w, y);
     return card;
 }
-
-// ---------------- ROW BUILDERS ----------------
 
 - (UIView*)rowToggle:(NSString*)title on:(BOOL)on cb:(void(^)(BOOL))cb {
     UIView* row = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 0, kRowH)];
@@ -1936,7 +1910,6 @@ static void forceLandscape(void) {
     return @[];
 }
 
-// ---------------- FOOTER ----------------
 - (void)buildFooter:(CGRect)r {
     self.footerView = [[UIView alloc] initWithFrame:r];
     self.footerView.backgroundColor = C_HEAD;
