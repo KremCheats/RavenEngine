@@ -145,6 +145,7 @@ w("Src/Settings.h", r"""
 namespace RavenSettings {
     void load();
     void save();
+    void resetToDefaults();
 
     extern bool  aimEnabled;
     extern int   aimBone;
@@ -159,6 +160,7 @@ namespace RavenSettings {
     extern bool  aimShowCircle;
     extern float aimCircleRadius;
     extern float aimCircleThickness;
+    extern int   aimPriority;
 
     extern bool  espEnabled;
     extern bool  espBox;
@@ -210,6 +212,10 @@ namespace RavenSettings {
 
     extern float menuScale;
     extern bool  animations;
+
+    extern int   uiAccentColor;
+    extern int   uiOpenButton;
+    extern int   uiPosition;
 }
 
 #endif
@@ -235,6 +241,7 @@ float aimSwitchDelay = 120.0f;
 bool  aimShowCircle = true;
 float aimCircleRadius = 120.0f;
 float aimCircleThickness = 2.0f;
+int   aimPriority = 0;
 
 bool  espEnabled = true;
 bool  espBox = true;
@@ -287,43 +294,130 @@ float miscMenuOpacity = 97.0f;
 float menuScale = 100.0f;
 bool  animations = true;
 
+int   uiAccentColor = 0;
+int   uiOpenButton = 0;
+int   uiPosition = 0;
+
 static NSString* kKey(NSString* n) { return [@"raven." stringByAppendingString:n]; }
 
 void load() {
     NSUserDefaults* d = [NSUserDefaults standardUserDefaults];
     aimEnabled = [d boolForKey:kKey(@"aim.enabled")];
-    aimActivation = [d integerForKey:kKey(@"aim.activation")];
-    aimBone = [d integerForKey:kKey(@"aim.bone")];
     aimFov = [d floatForKey:kKey(@"aim.fov")];  if (aimFov <= 0) aimFov = 120;
     aimSmooth = [d floatForKey:kKey(@"aim.smooth")]; if (aimSmooth <= 0) aimSmooth = 5;
     espEnabled = [d objectForKey:kKey(@"esp.enabled")] ? [d boolForKey:kKey(@"esp.enabled")] : YES;
-    espEnemyColor = [d integerForKey:kKey(@"esp.enemyColor")];
-    espVisibleColor = [d objectForKey:kKey(@"esp.visibleColor")] ? (int)[d integerForKey:kKey(@"esp.visibleColor")] : 1;
-    espSkeletonColor = [d objectForKey:kKey(@"esp.skeletonColor")] ? (int)[d integerForKey:kKey(@"esp.skeletonColor")] : 2;
-    espBoxColor = [d integerForKey:kKey(@"esp.boxColor")];
-    visCrosshairStyle = [d integerForKey:kKey(@"vis.crosshairStyle")];
     miscMenuOpacity = [d floatForKey:kKey(@"misc.opacity")]; if (miscMenuOpacity <= 0) miscMenuOpacity = 97;
     menuScale = [d floatForKey:kKey(@"ui.scale")]; if (menuScale <= 0) menuScale = 100;
-    animations = [d objectForKey:kKey(@"ui.animations")] ? [d boolForKey:kKey(@"ui.animations")] : YES;
+
+    aimActivation  = (int)[d integerForKey:kKey(@"aim.activation")];
+    aimBone        = (int)[d integerForKey:kKey(@"aim.bone")];
+    espEnemyColor  = (int)[d integerForKey:kKey(@"esp.enemyColor")];
+    espVisibleColor= (int)[d integerForKey:kKey(@"esp.visibleColor")];
+    espSkeletonColor=(int)[d integerForKey:kKey(@"esp.skeletonColor")];
+    espBoxColor    = (int)[d integerForKey:kKey(@"esp.boxColor")];
+    visCrosshairStyle = (int)[d integerForKey:kKey(@"vis.crosshairStyle")];
+    aimPriority    = (int)[d integerForKey:kKey(@"aim.priority")];
+    uiAccentColor  = (int)[d integerForKey:kKey(@"ui.accent")];
+    uiOpenButton   = (int)[d integerForKey:kKey(@"ui.openButton")];
+    uiPosition     = (int)[d integerForKey:kKey(@"ui.position")];
+    animations     = [d objectForKey:kKey(@"ui.animations")] ? [d boolForKey:kKey(@"ui.animations")] : YES;
 }
 
 void save() {
     NSUserDefaults* d = [NSUserDefaults standardUserDefaults];
     [d setBool:aimEnabled forKey:kKey(@"aim.enabled")];
-    [d setInteger:aimActivation forKey:kKey(@"aim.activation")];
-    [d setInteger:aimBone forKey:kKey(@"aim.bone")];
     [d setFloat:aimFov forKey:kKey(@"aim.fov")];
     [d setFloat:aimSmooth forKey:kKey(@"aim.smooth")];
     [d setBool:espEnabled forKey:kKey(@"esp.enabled")];
+    [d setFloat:miscMenuOpacity forKey:kKey(@"misc.opacity")];
+    [d setFloat:menuScale forKey:kKey(@"ui.scale")];
+
+    [d setInteger:aimActivation forKey:kKey(@"aim.activation")];
+    [d setInteger:aimBone forKey:kKey(@"aim.bone")];
     [d setInteger:espEnemyColor forKey:kKey(@"esp.enemyColor")];
     [d setInteger:espVisibleColor forKey:kKey(@"esp.visibleColor")];
     [d setInteger:espSkeletonColor forKey:kKey(@"esp.skeletonColor")];
     [d setInteger:espBoxColor forKey:kKey(@"esp.boxColor")];
     [d setInteger:visCrosshairStyle forKey:kKey(@"vis.crosshairStyle")];
-    [d setFloat:miscMenuOpacity forKey:kKey(@"misc.opacity")];
-    [d setFloat:menuScale forKey:kKey(@"ui.scale")];
+    [d setInteger:aimPriority forKey:kKey(@"aim.priority")];
+    [d setInteger:uiAccentColor forKey:kKey(@"ui.accent")];
+    [d setInteger:uiOpenButton forKey:kKey(@"ui.openButton")];
+    [d setInteger:uiPosition forKey:kKey(@"ui.position")];
     [d setBool:animations forKey:kKey(@"ui.animations")];
     [d synchronize];
+}
+
+void resetToDefaults() {
+    aimEnabled = false;
+    aimBone = 0;
+    aimActivation = 0;
+    aimFov = 120.0f;
+    aimSmooth = 5.0f;
+    aimMaxDist = 250.0f;
+    aimPrediction = true;
+    aimVisCheck = true;
+    aimDelay = 0.0f;
+    aimSwitchDelay = 120.0f;
+    aimShowCircle = true;
+    aimCircleRadius = 120.0f;
+    aimCircleThickness = 2.0f;
+    aimPriority = 0;
+
+    espEnabled = true;
+    espBox = true;
+    espCorner = false;
+    espSkeleton = false;
+    espSnaplines = false;
+    espName = true;
+    espDistance = true;
+    espHealth = true;
+    espWeapon = false;
+    espEnemyColor = 0;
+    espVisibleColor = 1;
+    espSkeletonColor = 2;
+    espBoxColor = 0;
+
+    visCrosshair = true;
+    visCrosshairStyle = 0;
+    visCrosshairSize = 6.0f;
+    visCrosshairThickness = 2.0f;
+    visFovCircle = false;
+    visFovRadius = 120.0f;
+    visFovThickness = 2.0f;
+    visRemoveFog = true;
+    visNightMode = true;
+    visBrightnessBoost = true;
+    visBrightness = 100.0f;
+    visNoFlash = true;
+    visNoSmoke = true;
+    visBetterTextures = false;
+
+    wpnNoRecoil = true;
+    wpnNoSpread = true;
+    wpnRecoilStrength = 0.0f;
+    wpnFastReload = true;
+    wpnRapidFire = true;
+    wpnFireRate = 3.0f;
+    wpnNoFlash = true;
+    wpnNoSmoke = true;
+    wpnNoShells = false;
+
+    miscBunnyHop = true;
+    miscAutoStrafe = true;
+    miscNoFallDamage = false;
+    miscUnlockAll = false;
+    miscNoAds = false;
+    miscPanicKey = true;
+    miscHideWhenClosed = true;
+    miscMenuOpacity = 97.0f;
+
+    menuScale = 100.0f;
+    animations = true;
+    uiAccentColor = 0;
+    uiOpenButton = 0;
+    uiPosition = 0;
+
+    save();
 }
 
 }
@@ -813,10 +907,9 @@ w("Src/Menu.h", r"""
 @end
 
 @interface RVSelector : UIView
-@property (nonatomic, copy) NSArray<NSString*>* items;
+@property (nonatomic, strong) NSArray<NSString*>* items;
 @property (nonatomic, assign) NSInteger selectedIndex;
 @property (nonatomic, copy) void (^onChange)(NSInteger);
-- (instancetype)initWithItems:(NSArray<NSString*>*)items selected:(NSInteger)selected;
 @end
 
 #endif
@@ -837,10 +930,8 @@ w("Src/Menu.mm", r"""
 #define C_HEAD     [UIColor colorWithRed:0.051 green:0.051 blue:0.063 alpha:1.0]
 #define C_SIDE     [UIColor colorWithRed:0.055 green:0.055 blue:0.071 alpha:1.0]
 #define C_CARD     [UIColor colorWithRed:0.078 green:0.078 blue:0.090 alpha:1.0]
-#define C_CARD_HI  [UIColor colorWithRed:0.098 green:0.098 blue:0.112 alpha:1.0]
 #define C_BORDER   [UIColor colorWithRed:0.157 green:0.157 blue:0.165 alpha:1.0]
 #define C_RED      [UIColor colorWithRed:0.835 green:0.122 blue:0.157 alpha:1.0]
-#define C_RED_DIM  [UIColor colorWithRed:0.520 green:0.075 blue:0.098 alpha:1.0]
 #define C_CRIMSON  [UIColor colorWithRed:0.290 green:0.067 blue:0.086 alpha:1.0]
 #define C_TEXT     [UIColor colorWithRed:0.949 green:0.949 blue:0.957 alpha:1.0]
 #define C_SEC      [UIColor colorWithRed:0.573 green:0.573 blue:0.608 alpha:1.0]
@@ -906,23 +997,6 @@ static void loadLogoURLAsync(const char* url, ImgBlock cb) {
     [task resume];
 }
 
-static UIImage* cropNormalized(UIImage* img, CGRect n) {
-    if (!img || !img.CGImage) return img;
-    size_t w = CGImageGetWidth(img.CGImage);
-    size_t h = CGImageGetHeight(img.CGImage);
-    CGRect px = CGRectMake(n.origin.x * w,
-                           n.origin.y * h,
-                           n.size.width * w,
-                           n.size.height * h);
-    px = CGRectIntersection(px, CGRectMake(0, 0, w, h));
-    if (CGRectIsEmpty(px)) return img;
-    CGImageRef cg = CGImageCreateWithImageInRect(img.CGImage, px);
-    if (!cg) return img;
-    UIImage* out = [UIImage imageWithCGImage:cg scale:img.scale orientation:img.imageOrientation];
-    CGImageRelease(cg);
-    return out;
-}
-
 static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     UILabel* l = [UILabel new];
     l.text = t;
@@ -934,9 +1008,6 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     return l;
 }
 
-// ==================================================================
-// Landscape-only enforcement
-// ==================================================================
 static NSUInteger raven_landscape_mask(id self, SEL _cmd) {
     return UIInterfaceOrientationMaskLandscape;
 }
@@ -984,26 +1055,26 @@ static void forceLandscape(void) {
 @end
 
 // ==================================================================
-// RVToggle
+// RVToggle — 40x22 premium with spring + haptic
 // ==================================================================
 @implementation RVToggle { UIView* _track; UIView* _knob; }
 - (instancetype)init {
     if ((self = [super initWithFrame:CGRectMake(0, 0, 40, 22)])) {
         self.userInteractionEnabled = YES;
 
-        _track = [[UIView alloc] initWithFrame:CGRectMake(0, 1, 40, 20)];
-        _track.layer.cornerRadius = 10;
+        _track = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 40, 22)];
+        _track.layer.cornerRadius = 11;
         _track.layer.borderWidth = 1;
-        _track.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.07].CGColor;
-        _track.backgroundColor = [UIColor colorWithRed:0.17 green:0.17 blue:0.19 alpha:1.0];
+        _track.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.06].CGColor;
+        _track.backgroundColor = [UIColor colorWithRed:0.18 green:0.18 blue:0.20 alpha:1.0];
         [self addSubview:_track];
 
-        _knob = [[UIView alloc] initWithFrame:CGRectMake(3, 3, 16, 16)];
-        _knob.layer.cornerRadius = 8;
-        _knob.backgroundColor = [UIColor colorWithWhite:0.97 alpha:1.0];
+        _knob = [[UIView alloc] initWithFrame:CGRectMake(2, 2, 18, 18)];
+        _knob.layer.cornerRadius = 9;
+        _knob.backgroundColor = [UIColor colorWithWhite:0.96 alpha:1.0];
         _knob.layer.shadowColor = [UIColor blackColor].CGColor;
-        _knob.layer.shadowOpacity = 0.42;
-        _knob.layer.shadowRadius = 3;
+        _knob.layer.shadowOpacity = 0.4;
+        _knob.layer.shadowRadius = 2;
         _knob.layer.shadowOffset = CGSizeMake(0, 1);
         [self addSubview:_knob];
 
@@ -1014,33 +1085,39 @@ static void forceLandscape(void) {
     return self;
 }
 - (void)toggle {
-    UIImpactFeedbackGenerator* h = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
-    [h impactOccurred];
     self.on = !self.on;
+
+    UIImpactFeedbackGenerator* g = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
+    [g impactOccurred];
+
     [self applyStateAnimated:RavenSettings::animations];
+
     if (self.onChange) self.onChange(self.on);
 }
 - (void)setOn:(BOOL)on { [self setOn:on animated:NO]; }
 - (void)setOn:(BOOL)on animated:(BOOL)animated { _on = on; [self applyStateAnimated:animated]; }
 - (void)applyStateAnimated:(BOOL)animated {
-    UIColor* track = _on ? C_RED : [UIColor colorWithRed:0.17 green:0.17 blue:0.19 alpha:1.0];
-    CGRect knob = _on ? CGRectMake(21, 3, 16, 16) : CGRectMake(3, 3, 16, 16);
+    UIColor* track = _on ? C_RED : [UIColor colorWithRed:0.18 green:0.18 blue:0.20 alpha:1.0];
+    UIColor* border = _on ? [[UIColor whiteColor] colorWithAlphaComponent:0.25]
+                          : [[UIColor whiteColor] colorWithAlphaComponent:0.06];
+    CGRect knob = _on ? CGRectMake(40 - 20, 2, 18, 18) : CGRectMake(2, 2, 18, 18);
     void (^blk)(void) = ^{
         _track.backgroundColor = track;
-        _track.layer.borderColor = (_on ? [C_RED colorWithAlphaComponent:0.85] : [UIColor colorWithWhite:1 alpha:0.07]).CGColor;
-        _track.layer.shadowColor = C_RED.CGColor;
-        _track.layer.shadowOpacity = _on ? 0.28 : 0.0;
-        _track.layer.shadowRadius = _on ? 5.0 : 0.0;
-        _track.layer.shadowOffset = CGSizeZero;
+        _track.layer.borderColor = border.CGColor;
         _knob.frame = knob;
+        _track.layer.shadowColor = _on ? C_RED.CGColor : [UIColor clearColor].CGColor;
+        _track.layer.shadowOpacity = _on ? 0.5 : 0.0;
+        _track.layer.shadowRadius = _on ? 6.0 : 0.0;
+        _track.layer.shadowOffset = CGSizeZero;
     };
     if (animated) {
         [UIView animateWithDuration:0.28
                               delay:0
-             usingSpringWithDamping:0.72
-              initialSpringVelocity:0.45
-                            options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction
-                         animations:blk completion:nil];
+             usingSpringWithDamping:0.7
+              initialSpringVelocity:0.5
+                            options:UIViewAnimationOptionCurveEaseOut
+                         animations:blk
+                         completion:nil];
     } else {
         blk();
     }
@@ -1048,7 +1125,7 @@ static void forceLandscape(void) {
 @end
 
 // ==================================================================
-// RVSlider
+// RVSlider — 4px premium with glow + thumb scale
 // ==================================================================
 @implementation RVSlider { UIView* _track; UIView* _fill; UIView* _thumb; float _t; }
 - (instancetype)init {
@@ -1057,29 +1134,27 @@ static void forceLandscape(void) {
         _minValue = 0; _maxValue = 100; _value = 0; _t = 0;
 
         _track = [UIView new];
-        _track.backgroundColor = [UIColor colorWithRed:0.19 green:0.19 blue:0.22 alpha:1.0];
+        _track.backgroundColor = [UIColor colorWithRed:0.22 green:0.22 blue:0.25 alpha:1.0];
         _track.layer.cornerRadius = 2.0;
-        _track.layer.borderWidth = 0.5;
-        _track.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.035].CGColor;
         [self addSubview:_track];
 
         _fill = [UIView new];
         _fill.backgroundColor = C_RED;
         _fill.layer.cornerRadius = 2.0;
         _fill.layer.shadowColor = C_RED.CGColor;
-        _fill.layer.shadowOpacity = 0.24;
+        _fill.layer.shadowOpacity = 0.55;
         _fill.layer.shadowRadius = 4;
         _fill.layer.shadowOffset = CGSizeZero;
         [self addSubview:_fill];
 
         _thumb = [UIView new];
-        _thumb.backgroundColor = [UIColor colorWithWhite:0.985 alpha:1.0];
+        _thumb.backgroundColor = [UIColor colorWithWhite:0.98 alpha:1.0];
         _thumb.layer.cornerRadius = 6;
-        _thumb.layer.borderWidth = 1.5;
-        _thumb.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.72].CGColor;
+        _thumb.layer.borderWidth = 1;
+        _thumb.layer.borderColor = [UIColor colorWithWhite:0 alpha:0.15].CGColor;
         _thumb.layer.shadowColor = C_RED.CGColor;
-        _thumb.layer.shadowOpacity = 0.36;
-        _thumb.layer.shadowRadius = 4;
+        _thumb.layer.shadowOpacity = 0.4;
+        _thumb.layer.shadowRadius = 3;
         _thumb.layer.shadowOffset = CGSizeZero;
         [self addSubview:_thumb];
 
@@ -1098,8 +1173,7 @@ static void forceLandscape(void) {
     CGFloat h = self.bounds.size.height;
     CGFloat th = 4.0;
     CGFloat ty = (h - th) / 2.0;
-    CGFloat padL = 8.0;
-    CGFloat padR = 8.0;
+    CGFloat padL = 8.0, padR = 8.0;
     CGFloat usable = w - padL - padR;
 
     _track.frame = CGRectMake(padL, ty, usable, th);
@@ -1114,15 +1188,31 @@ static void forceLandscape(void) {
     _t = (_maxValue == _minValue) ? 0 : (v - _minValue) / (_maxValue - _minValue);
     [self setNeedsLayout];
 }
+- (void)scaleThumbUp {
+    if (!RavenSettings::animations) return;
+    [UIView animateWithDuration:0.15 animations:^{
+        self->_thumb.transform = CGAffineTransformMakeScale(1.25, 1.25);
+    }];
+}
+- (void)scaleThumbDown {
+    if (!RavenSettings::animations) {
+        _thumb.transform = CGAffineTransformIdentity;
+        return;
+    }
+    [UIView animateWithDuration:0.15 animations:^{
+        self->_thumb.transform = CGAffineTransformIdentity;
+    }];
+}
 - (void)onDrag:(UIPanGestureRecognizer*)g {
     if (g.state == UIGestureRecognizerStateBegan) {
         UIImpactFeedbackGenerator* h = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
         [h impactOccurred];
-        if (RavenSettings::animations) {
-            [UIView animateWithDuration:0.14 animations:^{ self->_thumb.transform = CGAffineTransformMakeScale(1.24, 1.24); }];
-        }
+        [self scaleThumbUp];
     }
-
+    if (g.state == UIGestureRecognizerStateEnded ||
+        g.state == UIGestureRecognizerStateCancelled) {
+        [self scaleThumbDown];
+    }
     CGPoint p = [g locationInView:self];
     CGFloat w = self.bounds.size.width;
     CGFloat padL = 8.0, padR = 8.0;
@@ -1130,123 +1220,119 @@ static void forceLandscape(void) {
     float v = _minValue + frac * (_maxValue - _minValue);
     self.value = v;
     if (self.onChange) self.onChange(v);
-
-    if (g.state == UIGestureRecognizerStateEnded || g.state == UIGestureRecognizerStateCancelled) {
-        if (RavenSettings::animations) {
-            [UIView animateWithDuration:0.18 animations:^{ self->_thumb.transform = CGAffineTransformIdentity; }];
-        } else {
-            _thumb.transform = CGAffineTransformIdentity;
-        }
-    }
 }
 - (void)onTap:(UITapGestureRecognizer*)g {
+    UISelectionFeedbackGenerator* h = [[UISelectionFeedbackGenerator alloc] init];
+    [h selectionChanged];
+
     CGPoint p = [g locationInView:self];
     CGFloat w = self.bounds.size.width;
     CGFloat padL = 8.0, padR = 8.0;
     CGFloat frac = MAX(0, MIN(1, (p.x - padL) / (w - padL - padR)));
     float v = _minValue + frac * (_maxValue - _minValue);
     self.value = v;
-    UISelectionFeedbackGenerator* h = [UISelectionFeedbackGenerator new];
-    [h selectionChanged];
     if (self.onChange) self.onChange(v);
-    if (RavenSettings::animations) {
-        _thumb.transform = CGAffineTransformMakeScale(1.18, 1.18);
-        [UIView animateWithDuration:0.16 animations:^{ self->_thumb.transform = CGAffineTransformIdentity; }];
-    }
 }
 @end
 
 // ==================================================================
-// RVSelector
+// RVSelector — button + UIMenu
 // ==================================================================
-@implementation RVSelector { UIButton* _button; UILabel* _valueLabel; UIImageView* _chevron; }
-
-- (instancetype)initWithItems:(NSArray<NSString*>*)items selected:(NSInteger)selected {
-    if ((self = [super initWithFrame:CGRectMake(0, 0, 112, 24)])) {
+@implementation RVSelector { UIButton* _button; UILabel* _label; UIImageView* _chevron; }
+- (instancetype)init {
+    if ((self = [super initWithFrame:CGRectMake(0, 0, 120, 24)])) {
         self.userInteractionEnabled = YES;
-        self.layer.cornerRadius = 6;
+        self.backgroundColor = [UIColor colorWithRed:0.10 green:0.10 blue:0.11 alpha:1.0];
+        self.layer.cornerRadius = 5;
         self.layer.borderWidth = 1;
         self.layer.borderColor = C_BORDER.CGColor;
-        self.backgroundColor = [UIColor colorWithRed:0.092 green:0.092 blue:0.105 alpha:1.0];
 
-        _valueLabel = lbl(@"", 11, C_TEXT, NO);
-        _valueLabel.frame = CGRectMake(10, 0, 76, 24);
-        [self addSubview:_valueLabel];
+        _label = lbl(@"-", 11, C_TEXT, NO);
+        _label.textAlignment = NSTextAlignmentRight;
+        _label.frame = CGRectMake(8, 0, self.bounds.size.width - 26, self.bounds.size.height);
+        _label.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        _label.userInteractionEnabled = NO;
+        [self addSubview:_label];
 
-        UIImage* chevronImage = [UIImage systemImageNamed:@"chevron.down"];
-        _chevron = [[UIImageView alloc] initWithImage:chevronImage];
-        _chevron.tintColor = C_SEC;
-        _chevron.contentMode = UIViewContentModeScaleAspectFit;
-        _chevron.frame = CGRectMake(92, 7, 10, 10);
+        _chevron = [[UIImageView alloc] init];
+        if (@available(iOS 13.0, *)) {
+            _chevron.image = [UIImage systemImageNamed:@"chevron.down"];
+            _chevron.tintColor = C_SEC;
+        }
+        _chevron.frame = CGRectMake(self.bounds.size.width - 16, self.bounds.size.height/2 - 5, 10, 10);
+        _chevron.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+        _chevron.userInteractionEnabled = NO;
         [self addSubview:_chevron];
 
         _button = [UIButton buttonWithType:UIButtonTypeCustom];
         _button.frame = self.bounds;
         _button.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-        _button.showsMenuAsPrimaryAction = YES;
+        _button.backgroundColor = [UIColor clearColor];
+        [_button addTarget:self action:@selector(tapped) forControlEvents:UIControlEventTouchUpInside];
         [self addSubview:_button];
 
-        self.items = items ?: @[];
-        self.selectedIndex = selected;
-        [self rebuildMenu];
+        self.selectedIndex = 0;
     }
     return self;
 }
-
 - (void)setItems:(NSArray<NSString*>*)items {
-    _items = [items copy] ?: @[];
-    if (_selectedIndex >= (NSInteger)_items.count) _selectedIndex = MAX(0, (NSInteger)_items.count - 1);
+    _items = items;
     [self rebuildMenu];
+    [self refreshLabel];
 }
-
 - (void)setSelectedIndex:(NSInteger)selectedIndex {
-    if (_items.count == 0) {
-        _selectedIndex = 0;
-        _valueLabel.text = @"—";
-        return;
-    }
-    _selectedIndex = MAX(0, MIN((NSInteger)_items.count - 1, selectedIndex));
-    _valueLabel.text = _items[_selectedIndex];
-    [self rebuildMenu];
+    _selectedIndex = selectedIndex;
+    [self refreshLabel];
 }
-
+- (void)refreshLabel {
+    if (!_items || _items.count == 0) { _label.text = @"-"; return; }
+    NSInteger i = _selectedIndex;
+    if (i < 0 || i >= (NSInteger)_items.count) i = 0;
+    _label.text = _items[i];
+}
 - (void)rebuildMenu {
-    if (!_button) return;
-    if (_items.count == 0) {
-        _valueLabel.text = @"—";
-        _button.menu = nil;
-        return;
-    }
+    if (@available(iOS 14.0, *)) {
+        NSMutableArray<UIAction*>* actions = [NSMutableArray array];
+        for (NSInteger i = 0; i < (NSInteger)self.items.count; i++) {
+            NSString* title = self.items[i];
+            BOOL isSel = (i == self.selectedIndex);
+            __weak typeof(self) weakSelf = self;
+            UIAction* a = [UIAction actionWithTitle:title
+                                              image:nil
+                                         identifier:nil
+                                            handler:^(UIAction* act) {
+                __strong typeof(self) self_ = weakSelf;
+                if (!self_) return;
+                self_.selectedIndex = i;
 
-    NSMutableArray<UIMenuElement*>* actions = [NSMutableArray array];
-    __weak RVSelector* weakSelf = self;
-    for (NSInteger i = 0; i < (NSInteger)_items.count; i++) {
-        NSString* title = _items[i];
-        UIAction* a = [UIAction actionWithTitle:title
-                                          image:nil
-                                     identifier:nil
-                                        handler:^(__kindof UIAction* action) {
-            (void)action;
-            RVSelector* selfRef = weakSelf;
-            if (!selfRef) return;
-            selfRef->_selectedIndex = i;
-            selfRef->_valueLabel.text = title;
-            UISelectionFeedbackGenerator* h = [UISelectionFeedbackGenerator new];
-            [h selectionChanged];
-            if (RavenSettings::animations) {
-                selfRef.transform = CGAffineTransformMakeScale(0.97, 0.97);
-                [UIView animateWithDuration:0.18 animations:^{ selfRef.transform = CGAffineTransformIdentity; }];
-            }
-            if (selfRef.onChange) selfRef.onChange(i);
-            [selfRef rebuildMenu];
-        }];
-        if (i == _selectedIndex) a.state = UIMenuElementStateOn;
-        [actions addObject:a];
+                UISelectionFeedbackGenerator* h = [[UISelectionFeedbackGenerator alloc] init];
+                [h selectionChanged];
+
+                if (RavenSettings::animations) {
+                    [UIView animateWithDuration:0.12 animations:^{
+                        self_.label.alpha = 0.35;
+                    } completion:^(BOOL f){
+                        [UIView animateWithDuration:0.12 animations:^{
+                            self_.label.alpha = 1.0;
+                        }];
+                    }];
+                }
+                if (self_.onChange) self_.onChange(i);
+            }];
+            a.state = isSel ? UIMenuElementStateOn : UIMenuElementStateOff;
+            [actions addObject:a];
+        }
+        UIMenu* menu = [UIMenu menuWithTitle:@"" children:actions];
+        _button.menu = menu;
+        _button.showsMenuAsPrimaryAction = YES;
     }
-    _button.menu = [UIMenu menuWithTitle:@"" children:actions];
-    _valueLabel.text = _items[_selectedIndex];
 }
-
+- (UILabel*)label { return _label; }
+- (void)tapped {
+    if (@available(iOS 14.0, *)) {
+        // Menu shows automatically
+    }
+}
 @end
 
 // ==================================================================
@@ -1261,6 +1347,8 @@ static void forceLandscape(void) {
 @property (nonatomic, strong) UIView*   sidebarView;
 @property (nonatomic, strong) UIView*   contentView;
 @property (nonatomic, strong) UIView*   footerView;
+@property (nonatomic, strong) UIView*   toastView;
+@property (nonatomic, strong) NSTimer*  toastTimer;
 @property (nonatomic, strong) NSMutableArray* tabButtons;
 @property (nonatomic, strong) NSMutableDictionary* tabViews;
 @property (nonatomic, assign) NSInteger activeTab;
@@ -1270,11 +1358,8 @@ static void forceLandscape(void) {
 @property (nonatomic, assign) CGFloat uiScale;
 @property (nonatomic, assign) CGSize  lastBounds;
 @property (nonatomic, assign) CGRect  dragStartFrame;
-@property (nonatomic, assign) BOOL    hasPanelPosition;
-@property (nonatomic, strong) UIView* toastView;
-@property (nonatomic, strong) UILabel* toastTitle;
-@property (nonatomic, strong) UILabel* toastDetail;
-@property (nonatomic, strong) NSTimer* toastTimer;
+@property (nonatomic, assign) CGRect  panelUserFrame;
+@property (nonatomic, assign) BOOL    hasUserPosition;
 @end
 
 @implementation RavenMenu
@@ -1298,7 +1383,7 @@ static void forceLandscape(void) {
     self.activeTab     = 0;
     self.uiScale       = 1.0;
     self.lastBounds    = CGSizeZero;
-    self.hasPanelPosition = NO;
+    self.hasUserPosition = NO;
 
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         loadCachedImage(kWordmarkURL);
@@ -1334,6 +1419,7 @@ static void forceLandscape(void) {
     [self relayout];
 
     self.panel.hidden = YES;
+    self.panel.alpha = 0.0;
     self.ball.hidden  = NO;
     self.runtimeActive = true;
 
@@ -1351,7 +1437,7 @@ static void forceLandscape(void) {
                                                     selector:@selector(onTick)
                                                     userInfo:nil
                                                      repeats:YES];
-    RAVEN_LOG("menu started (landscape only)");
+    RAVEN_LOG("menu started");
 }
 
 - (void)dealloc { [[NSNotificationCenter defaultCenter] removeObserver:self]; }
@@ -1387,26 +1473,33 @@ static void forceLandscape(void) {
     CGFloat usableW = screen.size.width - safe.left - safe.right;
     CGFloat usableH = screen.size.height - safe.top - safe.bottom;
 
-    // Menu Scale is a real UI scale now. The requested scale is always
-    // capped by the largest size that fully fits inside the safe area.
-    CGFloat requestedScale = MAX(0.50, MIN(1.50, RavenSettings::menuScale / 100.0));
+    CGFloat requested = RavenSettings::menuScale / 100.0;
+    if (requested < 0.5) requested = 0.5;
+    if (requested > 1.5) requested = 1.5;
+
     CGFloat safeFit = MIN(usableW / kRefW, usableH / kRefH);
-    CGFloat fit = MIN(requestedScale, safeFit);
-    self.uiScale = fit;
+    CGFloat fit = MIN(requested, safeFit);
 
     CGFloat panelW = kRefW * fit;
     CGFloat panelH = kRefH * fit;
+    if (panelW > usableW) panelW = usableW;
+    if (panelH > usableH) panelH = usableH;
 
-    // Preserve the user's current position while resizing. First layout stays centered.
-    CGPoint oldCenter = self.panel ? self.panel.center
-                                   : CGPointMake(safe.left + usableW / 2.0,
-                                                 safe.top + usableH / 2.0);
-    CGFloat panelX = safe.left + (usableW - panelW) / 2.0;
-    CGFloat panelY = safe.top  + (usableH - panelH) / 2.0;
-    if (self.hasPanelPosition && self.panel) {
+    CGFloat panelX, panelY;
+    if (self.hasUserPosition) {
+        panelX = self.panelUserFrame.origin.x;
+        panelY = self.panelUserFrame.origin.y;
+        // Preserve center while scaling
+        CGPoint oldCenter = CGPointMake(self.panelUserFrame.origin.x + self.panelUserFrame.size.width / 2.0,
+                                        self.panelUserFrame.origin.y + self.panelUserFrame.size.height / 2.0);
         panelX = oldCenter.x - panelW / 2.0;
         panelY = oldCenter.y - panelH / 2.0;
+    } else {
+        panelX = safe.left + (usableW - panelW) / 2;
+        panelY = safe.top  + (usableH - panelH) / 2;
     }
+
+    self.uiScale = fit;
 
     self.panel.transform = CGAffineTransformIdentity;
     self.panel.frame = CGRectMake(panelX, panelY, panelW, panelH);
@@ -1448,6 +1541,7 @@ static void forceLandscape(void) {
     f.origin.x = MAX(minX, MIN(maxX, f.origin.x));
     f.origin.y = MAX(minY, MIN(maxY, f.origin.y));
     self.panel.frame = f;
+    self.panelUserFrame = f;
 }
 
 - (void)centerPanel {
@@ -1516,54 +1610,45 @@ static void forceLandscape(void) {
 
 - (void)togglePanel {
     self.panelOpen = !self.panelOpen;
-
     if (self.panelOpen) {
-        [self relayout];
-        if (!self.hasPanelPosition) [self centerPanel];
-        [self clampPanel];
-
+        if (!self.hasUserPosition) [self centerPanel];
         self.panel.hidden = NO;
-        self.ball.hidden = YES;
+        self.ball.hidden  = YES;
         [self.window bringSubviewToFront:self.panel];
 
         if (RavenSettings::animations) {
             self.panel.alpha = 0.0;
-            self.panel.transform = CGAffineTransformMakeScale(0.965, 0.965);
-            [UIView animateWithDuration:0.24
+            self.panel.transform = CGAffineTransformMakeScale(0.94, 0.94);
+            [UIView animateWithDuration:0.28
                                   delay:0
-                 usingSpringWithDamping:0.84
-                  initialSpringVelocity:0.35
-                                options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction
+                 usingSpringWithDamping:0.85
+                  initialSpringVelocity:0.4
+                                options:UIViewAnimationOptionCurveEaseOut
                              animations:^{
                 self.panel.alpha = 1.0;
                 self.panel.transform = CGAffineTransformIdentity;
             } completion:nil];
         } else {
             self.panel.alpha = 1.0;
-            self.panel.transform = CGAffineTransformIdentity;
         }
     } else {
         if (RavenSettings::animations) {
-            [UIView animateWithDuration:0.16
-                             animations:^{
+            [UIView animateWithDuration:0.2 animations:^{
                 self.panel.alpha = 0.0;
-                self.panel.transform = CGAffineTransformMakeScale(0.975, 0.975);
-            } completion:^(BOOL finished) {
+                self.panel.transform = CGAffineTransformMakeScale(0.94, 0.94);
+            } completion:^(BOOL f){
                 self.panel.hidden = YES;
-                self.panel.alpha = 1.0;
                 self.panel.transform = CGAffineTransformIdentity;
                 self.ball.hidden = NO;
                 self.ball.alpha = 0.0;
-                self.ball.transform = CGAffineTransformMakeScale(0.82, 0.82);
-                [self.window bringSubviewToFront:self.ball];
-                [UIView animateWithDuration:0.18 animations:^{
+                [UIView animateWithDuration:0.22 animations:^{
                     self.ball.alpha = 1.0;
-                    self.ball.transform = CGAffineTransformIdentity;
                 }];
+                [self.window bringSubviewToFront:self.ball];
             }];
         } else {
             self.panel.hidden = YES;
-            self.ball.hidden = NO;
+            self.ball.hidden  = NO;
             [self.window bringSubviewToFront:self.ball];
         }
     }
@@ -1609,6 +1694,7 @@ static void forceLandscape(void) {
     [self selectTab:0];
 }
 
+// ---------------- HEADER ----------------
 - (void)buildHeader:(CGRect)r {
     self.headerView = [[UIView alloc] initWithFrame:r];
     self.headerView.backgroundColor = C_HEAD;
@@ -1619,14 +1705,8 @@ static void forceLandscape(void) {
     line.backgroundColor = [C_RED colorWithAlphaComponent:0.35];
     [self.headerView addSubview:line];
 
-    // Fill the entire top header with the RAVEN banner. Window controls
-    // remain layered above the artwork on the right.
-    CGFloat bannerX = 0;
-    CGFloat bannerY = 0;
-    CGFloat bannerW = r.size.width;
-    CGFloat bannerH = r.size.height;
-
-    UIImageView* wm = [[UIImageView alloc] initWithFrame:CGRectMake(bannerX, bannerY, bannerW, bannerH)];
+    // Banner fills full header via AspectFill (crops overflow, no distortion).
+    UIImageView* wm = [[UIImageView alloc] initWithFrame:self.headerView.bounds];
     wm.contentMode = UIViewContentModeScaleAspectFill;
     wm.clipsToBounds = YES;
     wm.userInteractionEnabled = NO;
@@ -1634,8 +1714,8 @@ static void forceLandscape(void) {
     wm.tag = 801;
     [self.headerView addSubview:wm];
 
-    UILabel* fallback = lbl(@"RAVEN", 26, C_TEXT, YES);
-    fallback.frame = CGRectMake(bannerX, 0, bannerW, r.size.height);
+    UILabel* fallback = lbl(@"RAVEN", 22, C_TEXT, YES);
+    fallback.frame = CGRectMake(20, 0, 200, r.size.height);
     fallback.tag = 800;
     [self.headerView addSubview:fallback];
 
@@ -1643,26 +1723,28 @@ static void forceLandscape(void) {
     __weak UILabel* weakFB = fallback;
     loadLogoURLAsync(kWordmarkURL, ^(UIImage* img) {
         if (!img) return;
-        // Crop away the black canvas from Cnzjdjh.png so the actual
-        // RAVEN banner fills the header instead of appearing as a thumbnail.
-        weakWM.image = cropNormalized(img, CGRectMake(0.0, 0.286, 1.0, 0.364));
+        weakWM.image = img;
         weakWM.hidden = NO;
         weakFB.hidden = YES;
     });
 
     UIButton* close = [UIButton buttonWithType:UIButtonTypeSystem];
-    close.frame = CGRectMake(r.size.width - 44, (r.size.height - 30)/2, 30, 30);
+    close.frame = CGRectMake(r.size.width - 42, (r.size.height - 30)/2, 30, 30);
     [close setTitle:@"X" forState:UIControlStateNormal];
-    [close setTitleColor:C_RED forState:UIControlStateNormal];
+    [close setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     close.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightBold];
+    close.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.45];
+    close.layer.cornerRadius = 6;
     [close addTarget:self action:@selector(togglePanel) forControlEvents:UIControlEventTouchUpInside];
     [self.headerView addSubview:close];
 
     UIButton* min = [UIButton buttonWithType:UIButtonTypeSystem];
-    min.frame = CGRectMake(r.size.width - 82, (r.size.height - 30)/2, 30, 30);
+    min.frame = CGRectMake(r.size.width - 78, (r.size.height - 30)/2, 30, 30);
     [min setTitle:@"—" forState:UIControlStateNormal];
-    [min setTitleColor:C_SEC forState:UIControlStateNormal];
+    [min setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     min.titleLabel.font = [UIFont systemFontOfSize:18 weight:UIFontWeightSemibold];
+    min.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.35];
+    min.layer.cornerRadius = 6;
     [min addTarget:self action:@selector(togglePanel) forControlEvents:UIControlEventTouchUpInside];
     [self.headerView addSubview:min];
 
@@ -1677,20 +1759,17 @@ static void forceLandscape(void) {
 - (void)onHeaderDrag:(UIPanGestureRecognizer*)g {
     if (g.state == UIGestureRecognizerStateBegan) {
         self.dragStartFrame = self.panel.frame;
-        self.hasPanelPosition = YES;
     } else if (g.state == UIGestureRecognizerStateChanged) {
+        self.hasUserPosition = YES;
         CGPoint t = [g translationInView:self.window];
         CGRect f = self.dragStartFrame;
-        f.origin.x += t.x;
-        f.origin.y += t.y;
+        f.origin.x += t.x; f.origin.y += t.y;
         self.panel.frame = f;
-        [self clampPanel];
-    } else if (g.state == UIGestureRecognizerStateEnded ||
-               g.state == UIGestureRecognizerStateCancelled) {
         [self clampPanel];
     }
 }
 
+// ---------------- SIDEBAR ----------------
 - (NSArray*)tabDefs {
     return @[
         @{@"title":@"AIMBOT",   @"key":@"aimbot"},
@@ -1717,16 +1796,23 @@ static void forceLandscape(void) {
 
     __weak UIImageView* weakBG = bg;
     loadLogoURLAsync(kEmblemURL, ^(UIImage* img) {
-        if (!img) return;
-        // New sidebar asset is already composed as a full-bleed vertical banner.
-        weakBG.image = img;
+        if (img) weakBG.image = img;
     });
 
-    // Keep only a light readability tint. The source artwork is already dark.
     UIView* tint = [[UIView alloc] initWithFrame:self.sidebarView.bounds];
-    tint.backgroundColor = [UIColor colorWithRed:0.02 green:0.02 blue:0.04 alpha:0.14];
+    tint.backgroundColor = [UIColor colorWithRed:0.02 green:0.02 blue:0.04 alpha:0.35];
     tint.userInteractionEnabled = NO;
     [self.sidebarView addSubview:tint];
+
+    CAGradientLayer* topFade = [CAGradientLayer layer];
+    topFade.frame = CGRectMake(0, 0, r.size.width, r.size.height * 0.5);
+    topFade.colors = @[
+        (id)[UIColor colorWithRed:0.02 green:0.02 blue:0.04 alpha:0.7].CGColor,
+        (id)[UIColor colorWithRed:0.02 green:0.02 blue:0.04 alpha:0.0].CGColor
+    ];
+    topFade.startPoint = CGPointMake(0.5, 0.0);
+    topFade.endPoint = CGPointMake(0.5, 1.0);
+    [self.sidebarView.layer addSublayer:topFade];
 
     UIView* sep = [[UIView alloc] initWithFrame:CGRectMake(r.size.width - 1, 0, 1, r.size.height)];
     sep.backgroundColor = C_BORDER;
@@ -1761,9 +1847,6 @@ static void forceLandscape(void) {
         y += kTabH + 4;
     }
 
-    // The sidebar artwork already contains the SEE MORE. BE BETTER. motto.
-    // Do not draw a duplicate text label over the asset.
-
     [self.panelInner addSubview:self.sidebarView];
 }
 
@@ -1797,15 +1880,11 @@ static void forceLandscape(void) {
 
     if (RavenSettings::animations) {
         content.alpha = 0.0;
-        content.transform = CGAffineTransformMakeTranslation(10.0, 0.0);
-        [UIView animateWithDuration:0.18
-                         animations:^{
+        content.transform = CGAffineTransformMakeTranslation(14, 0);
+        [UIView animateWithDuration:0.2 animations:^{
             content.alpha = 1.0;
             content.transform = CGAffineTransformIdentity;
         }];
-    } else {
-        content.alpha = 1.0;
-        content.transform = CGAffineTransformIdentity;
     }
 }
 
@@ -1907,7 +1986,7 @@ static void forceLandscape(void) {
     RVToggle* t = [[RVToggle alloc] init];
     t.on = on;
     t.onChange = cb;
-    t.frame = CGRectMake(row.frame.size.width - 52, (kRowH - 20) / 2.0, 38, 20);
+    t.frame = CGRectMake(row.frame.size.width - 54, (kRowH - 22) / 2.0, 40, 22);
     t.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
     [row addSubview:t];
     return row;
@@ -1937,46 +2016,44 @@ static void forceLandscape(void) {
     return row;
 }
 
+- (UIView*)rowSelector:(NSString*)title
+                 items:(NSArray<NSString*>*)items
+         selectedIndex:(NSInteger)sel
+                   cb:(void(^)(NSInteger))cb
+{
+    UIView* row = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 0, kRowH)];
+    UILabel* l = lbl(title, 13, C_TEXT, NO);
+    l.frame = CGRectMake(14, 0, 140, kRowH);
+    [row addSubview:l];
+
+    RVSelector* s = [[RVSelector alloc] init];
+    s.items = items;
+    s.selectedIndex = (sel >= 0 && sel < (NSInteger)items.count) ? sel : 0;
+    s.onChange = cb;
+    s.frame = CGRectMake(row.frame.size.width - 148, 4, 134, 20);
+    s.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+    [row addSubview:s];
+    return row;
+}
+
 - (UIView*)rowDropdown:(NSString*)title value:(NSString*)val {
     UIView* row = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 0, kRowH)];
     UILabel* l = lbl(title, 13, C_TEXT, NO);
     l.frame = CGRectMake(14, 0, 140, kRowH);
     [row addSubview:l];
 
-    UIView* pill = [[UIView alloc] initWithFrame:CGRectMake(row.frame.size.width - 112, 2, 98, 24)];
-    pill.backgroundColor = [UIColor colorWithRed:0.092 green:0.092 blue:0.105 alpha:1.0];
-    pill.layer.cornerRadius = 6;
+    UIView* pill = [[UIView alloc] initWithFrame:CGRectMake(row.frame.size.width - 100, 4, 86, 20)];
+    pill.backgroundColor = [UIColor colorWithRed:0.10 green:0.10 blue:0.11 alpha:1.0];
+    pill.layer.cornerRadius = 4;
     pill.layer.borderWidth = 1;
     pill.layer.borderColor = C_BORDER.CGColor;
     pill.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
     [row addSubview:pill];
 
     UILabel* v = lbl(val, 11, C_TEXT, NO);
-    v.frame = CGRectMake(10, 0, 70, 24);
+    v.textAlignment = NSTextAlignmentCenter;
+    v.frame = pill.bounds;
     [pill addSubview:v];
-
-    UIImageView* chevron = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"chevron.down"]];
-    chevron.tintColor = C_MUTE;
-    chevron.contentMode = UIViewContentModeScaleAspectFit;
-    chevron.frame = CGRectMake(82, 7, 9, 9);
-    [pill addSubview:chevron];
-    return row;
-}
-
-- (UIView*)rowSelector:(NSString*)title
-                 items:(NSArray<NSString*>*)items
-              selected:(NSInteger)selected
-                    cb:(void(^)(NSInteger))cb {
-    UIView* row = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 0, kRowH)];
-    UILabel* l = lbl(title, 13, C_TEXT, NO);
-    l.frame = CGRectMake(14, 0, 140, kRowH);
-    [row addSubview:l];
-
-    RVSelector* s = [[RVSelector alloc] initWithItems:items selected:selected];
-    s.frame = CGRectMake(row.frame.size.width - 126, 2, 112, 24);
-    s.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
-    s.onChange = cb;
-    [row addSubview:s];
     return row;
 }
 
@@ -2006,8 +2083,13 @@ static void forceLandscape(void) {
     b.layer.borderWidth = 1;
     b.layer.borderColor = C_BORDER.CGColor;
     b.tag = (NSInteger)CFBridgingRetain([cb copy]);
-    [b addTarget:self action:@selector(onGenericButton:) forControlEvents:UIControlEventTouchUpInside];
+    [b addTarget:self action:@selector(onGenericButton:) forControlEvents:UIControlEventTouchDown];
     [row addSubview:b];
+
+    if (RavenSettings::animations) {
+        // subtle press-scale handled via touch events in UIButton subclass normally;
+        // kept minimal here to avoid subclassing.
+    }
     return row;
 }
 
@@ -2016,82 +2098,104 @@ static void forceLandscape(void) {
     if (cb) cb();
 
     if (RavenSettings::animations) {
-        b.transform = CGAffineTransformMakeScale(0.98, 0.98);
-        [UIView animateWithDuration:0.14 animations:^{ b.transform = CGAffineTransformIdentity; }];
+        b.transform = CGAffineTransformMakeScale(0.96, 0.96);
+        [UIView animateWithDuration:0.15 animations:^{
+            b.transform = CGAffineTransformIdentity;
+        }];
     }
 }
 
-- (void)showToast:(NSString*)title detail:(NSString*)detail {
+// ==================================================================
+// Toast
+// ==================================================================
+- (void)showToast:(NSString*)title message:(NSString*)msg {
+    if (self.toastView) {
+        [self.toastView removeFromSuperview];
+        self.toastView = nil;
+    }
     [self.toastTimer invalidate];
-    [self.toastView removeFromSuperview];
+    self.toastTimer = nil;
 
-    UIView* toast = [[UIView alloc] initWithFrame:CGRectMake(kRefW - 286, kHeaderH + 12, 266, 48)];
-    toast.backgroundColor = [UIColor colorWithRed:0.055 green:0.055 blue:0.066 alpha:0.97];
+    CGFloat W = 260;
+    CGFloat H = 54;
+    CGFloat x = self.panelInner.bounds.size.width - W - 24;
+    CGFloat y = kHeaderH + 14;
+
+    UIView* toast = [[UIView alloc] initWithFrame:CGRectMake(x, y, W, H)];
+    toast.backgroundColor = [UIColor colorWithRed:0.09 green:0.09 blue:0.10 alpha:0.96];
     toast.layer.cornerRadius = 8;
     toast.layer.borderWidth = 1;
-    toast.layer.borderColor = [C_RED colorWithAlphaComponent:0.42].CGColor;
+    toast.layer.borderColor = [C_RED colorWithAlphaComponent:0.4].CGColor;
     toast.layer.shadowColor = [UIColor blackColor].CGColor;
-    toast.layer.shadowOpacity = 0.45;
+    toast.layer.shadowOpacity = 0.5;
     toast.layer.shadowRadius = 10;
-    toast.layer.shadowOffset = CGSizeMake(0, 4);
+    toast.layer.shadowOffset = CGSizeMake(0, 3);
 
-    UIView* bar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 3, 48)];
+    UIView* bar = [[UIView alloc] initWithFrame:CGRectMake(0, 8, 3, H - 16)];
     bar.backgroundColor = C_RED;
     bar.layer.cornerRadius = 1.5;
     [toast addSubview:bar];
 
-    UILabel* t = lbl(title ?: @"RAVEN", 12, C_TEXT, YES);
-    t.frame = CGRectMake(14, 7, 238, 16);
-    [toast addSubview:t];
+    UILabel* tl = lbl(title, 12, C_TEXT, YES);
+    tl.frame = CGRectMake(14, 8, W - 22, 18);
+    [toast addSubview:tl];
 
-    UILabel* d = lbl(detail ?: @"", 10, C_SEC, NO);
-    d.frame = CGRectMake(14, 25, 238, 14);
-    [toast addSubview:d];
+    UILabel* ml = lbl(msg, 10, C_SEC, NO);
+    ml.frame = CGRectMake(14, 26, W - 22, 16);
+    [toast addSubview:ml];
 
-    self.toastView = toast;
-    self.toastTitle = t;
-    self.toastDetail = d;
+    toast.alpha = 0.0;
+    toast.transform = CGAffineTransformMakeTranslation(20, 0);
     [self.panelInner addSubview:toast];
-    [self.panelInner bringSubviewToFront:toast];
+    self.toastView = toast;
 
     if (RavenSettings::animations) {
-        toast.alpha = 0.0;
-        toast.transform = CGAffineTransformMakeTranslation(14, -4);
-        [UIView animateWithDuration:0.22 animations:^{
+        [UIView animateWithDuration:0.24
+                              delay:0
+             usingSpringWithDamping:0.85
+              initialSpringVelocity:0.4
+                            options:UIViewAnimationOptionCurveEaseOut
+                         animations:^{
             toast.alpha = 1.0;
             toast.transform = CGAffineTransformIdentity;
-        }];
+        } completion:nil];
+    } else {
+        toast.alpha = 1.0;
+        toast.transform = CGAffineTransformIdentity;
     }
 
-    __weak RavenMenu* weakSelf = self;
-    self.toastTimer = [NSTimer scheduledTimerWithTimeInterval:2.2 repeats:NO block:^(NSTimer* timer) {
-        RavenMenu* selfRef = weakSelf;
-        if (!selfRef || selfRef.toastView != toast) return;
-        void (^removeToast)(void) = ^{
-            [toast removeFromSuperview];
-            if (selfRef.toastView == toast) selfRef.toastView = nil;
-        };
-        if (RavenSettings::animations) {
-            [UIView animateWithDuration:0.18 animations:^{
-                toast.alpha = 0.0;
-                toast.transform = CGAffineTransformMakeTranslation(10, -4);
-            } completion:^(BOOL finished) {
-                removeToast();
-            }];
-        } else {
-            removeToast();
-        }
-    }];
+    self.toastTimer = [NSTimer scheduledTimerWithTimeInterval:2.2
+                                                       target:self
+                                                     selector:@selector(dismissToast)
+                                                     userInfo:nil
+                                                      repeats:NO];
 }
 
+- (void)dismissToast {
+    if (!self.toastView) return;
+    UIView* t = self.toastView;
+    self.toastView = nil;
+    if (RavenSettings::animations) {
+        [UIView animateWithDuration:0.18 animations:^{
+            t.alpha = 0.0;
+            t.transform = CGAffineTransformMakeTranslation(20, 0);
+        } completion:^(BOOL f){ [t removeFromSuperview]; }];
+    } else {
+        [t removeFromSuperview];
+    }
+}
+
+// ==================================================================
+// Cards
+// ==================================================================
 - (NSArray*)cardsForTab:(NSString*)tab width:(CGFloat)w {
     if ([tab isEqualToString:@"AIMBOT"]) {
         UIView* general = [self card:@"GENERAL" width:w rows:@[
             [self rowToggle:@"Enable Aimbot" on:RavenSettings::aimEnabled cb:^(BOOL v){ RavenSettings::aimEnabled = v; RavenSettings::save(); }],
             [self rowSelector:@"Aim Activation"
-                         items:@[@"Hold", @"Toggle", @"Always"]
-                      selected:RavenSettings::aimActivation
-                            cb:^(NSInteger v){ RavenSettings::aimActivation = (int)v; RavenSettings::save(); }],
+                        items:@[@"Hold", @"Toggle", @"Always"]
+                selectedIndex:RavenSettings::aimActivation
+                          cb:^(NSInteger i){ RavenSettings::aimActivation = (int)i; RavenSettings::save(); }],
             [self rowSlider:@"Aim FOV" min:0 max:360 val:RavenSettings::aimFov cb:^(float v){ RavenSettings::aimFov = v; }],
             [self rowSlider:@"Smoothness" min:1 max:30 val:RavenSettings::aimSmooth cb:^(float v){ RavenSettings::aimSmooth = v; }],
         ]];
@@ -2102,10 +2206,13 @@ static void forceLandscape(void) {
         ]];
         UIView* targeting = [self card:@"TARGETING" width:w rows:@[
             [self rowSelector:@"Target Bone"
-                         items:@[@"Head", @"Neck", @"Chest", @"Pelvis"]
-                      selected:RavenSettings::aimBone
-                            cb:^(NSInteger v){ RavenSettings::aimBone = (int)v; RavenSettings::save(); }],
-            [self rowDropdown:@"Target Priority" value:@"Distance"],
+                        items:@[@"Head", @"Neck", @"Chest", @"Pelvis"]
+                selectedIndex:RavenSettings::aimBone
+                          cb:^(NSInteger i){ RavenSettings::aimBone = (int)i; RavenSettings::save(); }],
+            [self rowSelector:@"Target Priority"
+                        items:@[@"Distance", @"Health", @"Threat"]
+                selectedIndex:RavenSettings::aimPriority
+                          cb:^(NSInteger i){ RavenSettings::aimPriority = (int)i; RavenSettings::save(); }],
             [self rowToggle:@"Visible Check" on:RavenSettings::aimVisCheck cb:^(BOOL v){ RavenSettings::aimVisCheck = v; }],
             [self rowSlider:@"Max Distance" min:50 max:500 val:RavenSettings::aimMaxDist cb:^(float v){ RavenSettings::aimMaxDist = v; }],
         ]];
@@ -2133,21 +2240,21 @@ static void forceLandscape(void) {
         ]];
         UIView* colors = [self card:@"COLORS" width:w rows:@[
             [self rowSelector:@"Enemy Color"
-                         items:@[@"Red", @"Green", @"White", @"Yellow", @"Cyan"]
-                      selected:RavenSettings::espEnemyColor
-                            cb:^(NSInteger v){ RavenSettings::espEnemyColor = (int)v; RavenSettings::save(); }],
+                        items:@[@"Red", @"Green", @"White", @"Yellow", @"Cyan"]
+                selectedIndex:RavenSettings::espEnemyColor
+                          cb:^(NSInteger i){ RavenSettings::espEnemyColor = (int)i; RavenSettings::save(); }],
             [self rowSelector:@"Visible Color"
-                         items:@[@"Red", @"Green", @"White", @"Yellow", @"Cyan"]
-                      selected:RavenSettings::espVisibleColor
-                            cb:^(NSInteger v){ RavenSettings::espVisibleColor = (int)v; RavenSettings::save(); }],
+                        items:@[@"Red", @"Green", @"White", @"Yellow", @"Cyan"]
+                selectedIndex:RavenSettings::espVisibleColor
+                          cb:^(NSInteger i){ RavenSettings::espVisibleColor = (int)i; RavenSettings::save(); }],
             [self rowSelector:@"Skeleton Color"
-                         items:@[@"Red", @"Green", @"White", @"Yellow", @"Cyan"]
-                      selected:RavenSettings::espSkeletonColor
-                            cb:^(NSInteger v){ RavenSettings::espSkeletonColor = (int)v; RavenSettings::save(); }],
+                        items:@[@"Red", @"Green", @"White", @"Yellow", @"Cyan"]
+                selectedIndex:RavenSettings::espSkeletonColor
+                          cb:^(NSInteger i){ RavenSettings::espSkeletonColor = (int)i; RavenSettings::save(); }],
             [self rowSelector:@"Box Color"
-                         items:@[@"Red", @"Green", @"White", @"Yellow", @"Cyan"]
-                      selected:RavenSettings::espBoxColor
-                            cb:^(NSInteger v){ RavenSettings::espBoxColor = (int)v; RavenSettings::save(); }],
+                        items:@[@"Red", @"Green", @"White", @"Yellow", @"Cyan"]
+                selectedIndex:RavenSettings::espBoxColor
+                          cb:^(NSInteger i){ RavenSettings::espBoxColor = (int)i; RavenSettings::save(); }],
         ]];
         return @[player, info, colors];
     }
@@ -2156,9 +2263,9 @@ static void forceLandscape(void) {
         UIView* cross = [self card:@"CROSSHAIR" width:w rows:@[
             [self rowToggle:@"Enable Crosshair" on:RavenSettings::visCrosshair cb:^(BOOL v){ RavenSettings::visCrosshair = v; }],
             [self rowSelector:@"Style"
-                         items:@[@"Dot", @"Cross", @"Circle", @"T-Shape"]
-                      selected:RavenSettings::visCrosshairStyle
-                            cb:^(NSInteger v){ RavenSettings::visCrosshairStyle = (int)v; RavenSettings::save(); }],
+                        items:@[@"Dot", @"Cross", @"Circle", @"T-Shape"]
+                selectedIndex:RavenSettings::visCrosshairStyle
+                          cb:^(NSInteger i){ RavenSettings::visCrosshairStyle = (int)i; RavenSettings::save(); }],
             [self rowSlider:@"Size" min:1 max:30 val:RavenSettings::visCrosshairSize cb:^(float v){ RavenSettings::visCrosshairSize = v; }],
             [self rowSlider:@"Thickness" min:1 max:6 val:RavenSettings::visCrosshairThickness cb:^(float v){ RavenSettings::visCrosshairThickness = v; }],
         ]];
@@ -2233,35 +2340,41 @@ static void forceLandscape(void) {
         NSString* rvStr = [NSString stringWithUTF8String:rv.c_str()];
 
         UIView* iface = [self card:@"INTERFACE" width:w rows:@[
-            [self rowSlider:@"Menu Scale" min:50 max:150 val:RavenSettings::menuScale cb:^(float v){
-                RavenSettings::menuScale = v;
-                [self relayout];
-                [self clampPanel];
-            }],
-            [self rowDropdown:@"Accent Color" value:@"Crimson"],
+            [self rowSlider:@"Menu Scale" min:50 max:150 val:RavenSettings::menuScale cb:^(float v){ RavenSettings::menuScale = v; RavenSettings::save(); [self relayout]; }],
+            [self rowSelector:@"Accent Color"
+                        items:@[@"Crimson", @"Red", @"Blue", @"Green", @"Purple"]
+                selectedIndex:RavenSettings::uiAccentColor
+                          cb:^(NSInteger i){ RavenSettings::uiAccentColor = (int)i; RavenSettings::save(); }],
             [self rowToggle:@"Animations" on:RavenSettings::animations cb:^(BOOL v){
                 RavenSettings::animations = v;
                 RavenSettings::save();
-                [self showToast:@"Animations" detail:(v ? @"Smooth UI motion enabled" : @"UI motion disabled")];
+                [self showToast:@"Animations"
+                        message:(v ? @"Smooth UI motion enabled" : @"UI motion disabled")];
             }],
         ]];
         UIView* config = [self card:@"CONFIG" width:w rows:@[
             [self rowButton:@"Save Config" tap:^{
                 RavenSettings::save();
-                [self showToast:@"Config Saved" detail:@"RAVEN settings stored"];
+                [self showToast:@"Config Saved" message:@"RAVEN settings stored"];
             }],
             [self rowButton:@"Load Config" tap:^{
                 RavenSettings::load();
-                [self showToast:@"Config Loaded" detail:@"Saved settings restored"];
+                [self showToast:@"Config Loaded" message:@"Saved settings restored"];
             }],
             [self rowButton:@"Reset to Defaults" tap:^{
-                RavenSettings::save();
-                [self showToast:@"Config Updated" detail:@"Current configuration saved"];
+                RavenSettings::resetToDefaults();
+                [self showToast:@"Reset Complete" message:@"All settings restored"];
             }],
         ]];
         UIView* menu = [self card:@"MENU" width:w rows:@[
-            [self rowDropdown:@"Open/Close Button" value:@"Floating"],
-            [self rowDropdown:@"Position" value:@"Right"],
+            [self rowSelector:@"Open/Close Button"
+                        items:@[@"Floating", @"Corner", @"Hidden"]
+                selectedIndex:RavenSettings::uiOpenButton
+                          cb:^(NSInteger i){ RavenSettings::uiOpenButton = (int)i; RavenSettings::save(); }],
+            [self rowSelector:@"Position"
+                        items:@[@"Right", @"Left", @"Center"]
+                selectedIndex:RavenSettings::uiPosition
+                          cb:^(NSInteger i){ RavenSettings::uiPosition = (int)i; RavenSettings::save(); }],
             [self rowSlider:@"Opacity" min:20 max:100 val:RavenSettings::miscMenuOpacity cb:^(float v){ RavenSettings::miscMenuOpacity = v; }],
         ]];
         UIView* about = [self card:@"ABOUT" width:w rows:@[
@@ -2276,6 +2389,7 @@ static void forceLandscape(void) {
     return @[];
 }
 
+// ---------------- FOOTER ----------------
 - (void)buildFooter:(CGRect)r {
     self.footerView = [[UIView alloc] initWithFrame:r];
     self.footerView.backgroundColor = C_HEAD;
@@ -2317,4 +2431,4 @@ static void forceLandscape(void) {
 @end
 """)
 
-print("done - Raven correction pass")
+print("done - Raven polished")
