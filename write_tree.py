@@ -14,7 +14,7 @@ ARCHS = arm64
 include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = Raven
-Raven_FILES = Raven.mm Src/IL2CPP.mm Src/ESP.mm Src/Aimbot.mm Src/Menu.mm Src/Updater.mm
+Raven_FILES = Raven.mm Src/IL2CPP.mm Src/ESP.mm Src/Aimbot.mm Src/Menu.mm Src/Updater.mm Src/Settings.mm
 Raven_CFLAGS = -fobjc-arc -I./Src -std=c++17 -Wno-unused-function -Wno-deprecated-declarations
 Raven_CCFLAGS = -fobjc-arc -I./Src -std=c++17
 Raven_FRAMEWORKS = UIKit Foundation QuartzCore CoreGraphics
@@ -31,11 +31,13 @@ w("Raven.mm", r"""
 #import "Src/Menu.h"
 #import "Src/Updater.h"
 #import "Src/Logos.h"
+#import "Src/Settings.h"
 
 __attribute__((constructor))
 static void raven_entry(void) {
     @autoreleasepool {
         RAVEN_LOG("entry");
+        RavenSettings::load();
         Updater::fetchAsync(kConfigURL);
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(4 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
@@ -105,11 +107,9 @@ namespace GameData {
         inline uint32_t TeamId()     { return Updater::offset("TeamId", 0x0); }
         inline uint32_t IsVisible()  { return Updater::offset("IsVisible", 0x0); }
         inline uint32_t IsLocal()    { return Updater::offset("IsLocal", 0x0); }
-
         inline uint32_t ListCount()  { return Updater::offset("ListCount", 0x18); }
         inline uint32_t ListItems()  { return Updater::offset("ListItems", 0x10); }
         inline uint32_t ArrayData()  { return Updater::offset("ArrayData", 0x20); }
-
         inline uint32_t ViewMatrix() { return Updater::offset("ViewMatrix", 0x0); }
         inline uint32_t ProjMatrix() { return Updater::offset("ProjMatrix", 0x0); }
     }
@@ -129,20 +129,201 @@ w("Src/Logos.h", r"""
 #ifndef RAVEN_LOGOS_H
 #define RAVEN_LOGOS_H
 
-// ---- Branding assets ----
-// RAVEN wordmark — small header branding only.
+// Header banner — aspect-fit, top bar only.
 static const char* kWordmarkURL  = "https://i.imgur.com/Cnzjdjh.png";
 
-// RAVEN ball logo — floating open button only.
+// Floating open button.
 static const char* kBallLogoURL  = "https://i.imgur.com/MQG4stU.png";
 
-// RAVEN raven emblem — small sidebar emblem only.
+// Sidebar full background — aspect-fill cover.
 static const char* kEmblemURL    = "https://i.imgur.com/vLJmsVo.png";
 
-// ---- Remote config ----
 static const char* kConfigURL = "https://raw.githubusercontent.com/KremCheats/RuntimeSupport/main/config.json";
 
 #endif
+""")
+
+w("Src/Settings.h", r"""
+#ifndef RAVEN_SETTINGS_H
+#define RAVEN_SETTINGS_H
+
+namespace RavenSettings {
+
+    void load();
+    void save();
+
+    // ---- Aimbot ----
+    extern bool  aimEnabled;
+    extern int   aimBone;          // 0=head 1=neck 2=chest
+    extern int   aimActivation;    // 0=hold 1=toggle 2=always
+    extern float aimFov;
+    extern float aimSmooth;
+    extern float aimMaxDist;
+    extern bool  aimPrediction;
+    extern bool  aimVisCheck;
+    extern float aimDelay;
+    extern float aimSwitchDelay;
+    extern bool  aimShowCircle;
+    extern float aimCircleRadius;
+    extern float aimCircleThickness;
+
+    // ---- ESP ----
+    extern bool  espEnabled;
+    extern bool  espBox;
+    extern bool  espCorner;
+    extern bool  espSkeleton;
+    extern bool  espSnaplines;
+    extern bool  espName;
+    extern bool  espDistance;
+    extern bool  espHealth;
+    extern bool  espWeapon;
+    extern int   espEnemyColor;
+    extern int   espVisibleColor;
+    extern int   espSkeletonColor;
+    extern int   espBoxColor;
+
+    // ---- Visuals ----
+    extern bool  visCrosshair;
+    extern int   visCrosshairStyle;
+    extern float visCrosshairSize;
+    extern float visCrosshairThickness;
+    extern bool  visFovCircle;
+    extern float visFovRadius;
+    extern float visFovThickness;
+    extern bool  visRemoveFog;
+    extern bool  visNightMode;
+    extern bool  visBrightnessBoost;
+    extern float visBrightness;
+    extern bool  visNoFlash;
+    extern bool  visNoSmoke;
+    extern bool  visBetterTextures;
+
+    // ---- Weapon ----
+    extern bool  wpnNoRecoil;
+    extern bool  wpnNoSpread;
+    extern float wpnRecoilStrength;
+    extern bool  wpnFastReload;
+    extern bool  wpnRapidFire;
+    extern float wpnFireRate;
+    extern bool  wpnNoFlash;
+    extern bool  wpnNoSmoke;
+    extern bool  wpnNoShells;
+
+    // ---- Misc ----
+    extern bool  miscBunnyHop;
+    extern bool  miscAutoStrafe;
+    extern bool  miscNoFallDamage;
+    extern bool  miscUnlockAll;
+    extern bool  miscNoAds;
+    extern bool  miscPanicKey;
+    extern bool  miscHideWhenClosed;
+    extern float miscMenuOpacity;
+
+    // ---- Interface ----
+    extern float menuScale;
+    extern bool  animations;
+
+} // namespace RavenSettings
+
+#endif
+""")
+
+w("Src/Settings.mm", r"""
+#import "Settings.h"
+#import "Common.h"
+#import <Foundation/Foundation.h>
+
+namespace RavenSettings {
+
+bool  aimEnabled = false;
+int   aimBone = 0;
+int   aimActivation = 0;
+float aimFov = 120.0f;
+float aimSmooth = 5.0f;
+float aimMaxDist = 250.0f;
+bool  aimPrediction = true;
+bool  aimVisCheck = true;
+float aimDelay = 0.0f;
+float aimSwitchDelay = 120.0f;
+bool  aimShowCircle = true;
+float aimCircleRadius = 120.0f;
+float aimCircleThickness = 2.0f;
+
+bool  espEnabled = true;
+bool  espBox = true;
+bool  espCorner = false;
+bool  espSkeleton = false;
+bool  espSnaplines = false;
+bool  espName = true;
+bool  espDistance = true;
+bool  espHealth = true;
+bool  espWeapon = false;
+int   espEnemyColor = 0;
+int   espVisibleColor = 1;
+int   espSkeletonColor = 2;
+int   espBoxColor = 0;
+
+bool  visCrosshair = true;
+int   visCrosshairStyle = 0;
+float visCrosshairSize = 6.0f;
+float visCrosshairThickness = 2.0f;
+bool  visFovCircle = false;
+float visFovRadius = 120.0f;
+float visFovThickness = 2.0f;
+bool  visRemoveFog = true;
+bool  visNightMode = true;
+bool  visBrightnessBoost = true;
+float visBrightness = 100.0f;
+bool  visNoFlash = true;
+bool  visNoSmoke = true;
+bool  visBetterTextures = false;
+
+bool  wpnNoRecoil = true;
+bool  wpnNoSpread = true;
+float wpnRecoilStrength = 0.0f;
+bool  wpnFastReload = true;
+bool  wpnRapidFire = true;
+float wpnFireRate = 3.0f;
+bool  wpnNoFlash = true;
+bool  wpnNoSmoke = true;
+bool  wpnNoShells = false;
+
+bool  miscBunnyHop = true;
+bool  miscAutoStrafe = true;
+bool  miscNoFallDamage = false;
+bool  miscUnlockAll = false;
+bool  miscNoAds = false;
+bool  miscPanicKey = true;
+bool  miscHideWhenClosed = true;
+float miscMenuOpacity = 97.0f;
+
+float menuScale = 100.0f;
+bool  animations = true;
+
+static NSString* kKey(NSString* n) { return [@"raven." stringByAppendingString:n]; }
+
+void load() {
+    NSUserDefaults* d = [NSUserDefaults standardUserDefaults];
+    aimEnabled = [d boolForKey:kKey(@"aim.enabled")];
+    aimFov = [d floatForKey:kKey(@"aim.fov")];  if (aimFov <= 0) aimFov = 120;
+    aimSmooth = [d floatForKey:kKey(@"aim.smooth")]; if (aimSmooth <= 0) aimSmooth = 5;
+    espEnabled = [d objectForKey:kKey(@"esp.enabled")] ? [d boolForKey:kKey(@"esp.enabled")] : YES;
+    miscMenuOpacity = [d floatForKey:kKey(@"misc.opacity")]; if (miscMenuOpacity <= 0) miscMenuOpacity = 97;
+    menuScale = [d floatForKey:kKey(@"ui.scale")]; if (menuScale <= 0) menuScale = 100;
+}
+
+void save() {
+    NSUserDefaults* d = [NSUserDefaults standardUserDefaults];
+    [d setBool:aimEnabled forKey:kKey(@"aim.enabled")];
+    [d setFloat:aimFov forKey:kKey(@"aim.fov")];
+    [d setFloat:aimSmooth forKey:kKey(@"aim.smooth")];
+    [d setBool:espEnabled forKey:kKey(@"esp.enabled")];
+    [d setFloat:miscMenuOpacity forKey:kKey(@"misc.opacity")];
+    [d setFloat:menuScale forKey:kKey(@"ui.scale")];
+    [d synchronize];
+}
+
+}
 """)
 
 w("Src/Updater.h", r"""
@@ -481,7 +662,6 @@ w("Src/ESP.h", r"""
 
 - (void)drawBox:(CGRect)r color:(UIColor*)c;
 - (void)drawLine:(CGPoint)a to:(CGPoint)b color:(UIColor*)c;
-- (void)drawText:(NSString*)s at:(CGPoint)p color:(UIColor*)c;
 @end
 #endif
 """)
@@ -490,6 +670,7 @@ w("Src/ESP.mm", r"""
 #import "ESP.h"
 #import "GameData.h"
 #import "IL2CPP.h"
+#import "Settings.h"
 
 @implementation RavenESP
 
@@ -540,7 +721,7 @@ w("Src/ESP.mm", r"""
             if (s.activationState == UISceneActivationStateForegroundActive ||
                 s.activationState == UISceneActivationStateForegroundInactive) {
                 self.window.windowScene = (UIWindowScene *)s;
-                self.window.hidden = NO;
+                self.window.hidden = !RavenSettings::espEnabled;
                 return;
             }
         }
@@ -549,6 +730,7 @@ w("Src/ESP.mm", r"""
 
 - (void)begin { self.boxes.path = NULL; self.lines.path = NULL; }
 - (void)end {}
+
 - (void)drawBox:(CGRect)r color:(UIColor*)c {
     UIBezierPath *p = [UIBezierPath bezierPathWithRect:r];
     CGMutablePathRef cur = CGPathCreateMutableCopy(self.boxes.path ?: CGPathCreateMutable());
@@ -557,16 +739,25 @@ w("Src/ESP.mm", r"""
     CGPathRelease(cur);
     self.boxes.strokeColor = c.CGColor;
 }
+
 - (void)drawLine:(CGPoint)a to:(CGPoint)b color:(UIColor*)c {
-    CGMutablePathRef cur = CGPathCreateMutableCopy(self.lines.path ?: CGPathCreateMutable());
+    CGMutablePathRef cur = CGPathCreateMutablePath(self.lines.path ?: CGPathCreateMutable());
     CGPathMoveToPoint(cur, NULL, a.x, a.y);
     CGPathAddLineToPoint(cur, NULL, b.x, b.y);
     self.lines.path = cur;
     CGPathRelease(cur);
     self.lines.strokeColor = c.CGColor;
 }
-- (void)drawText:(NSString*)s at:(CGPoint)p color:(UIColor*)c {}
-- (void)render {}
+
+// ---- Runtime render hook ----
+// Not implemented yet. Real logic (player iteration, world-to-screen,
+// bone lookup, box drawing) will connect here once GameData offsets
+// are populated from the CM offsets repo. Until then this is a no-op.
+- (void)render {
+    if (!RavenSettings::espEnabled) return;
+    // TODO(real-esp): iterate player list, project, draw.
+}
+
 @end
 """)
 
@@ -577,13 +768,6 @@ w("Src/Aimbot.h", r"""
 
 namespace RavenAimbot {
     void setEnabled(bool on);
-    void setBone(int boneIdx);
-    void setSmooth(float amount);
-    void setFov(float radiusPx);
-    void setKey(int keyCode);
-    void setSilent(bool on);
-    void setVisCheck(bool on);
-    void setPrediction(bool on);
     void tick();
 }
 #endif
@@ -593,26 +777,21 @@ w("Src/Aimbot.mm", r"""
 #import "Aimbot.h"
 #import "GameData.h"
 #import "IL2CPP.h"
+#import "Settings.h"
 
 namespace RavenAimbot {
-static bool  g_on        = false;
-static int   g_bone      = GameData::Bone::Head;
-static float g_smooth    = 5.0f;
-static float g_fov       = 120.0f;
-static int   g_key       = 0;
-static bool  g_silent    = false;
-static bool  g_vis       = true;
-static bool  g_pred      = true;
 
-void setEnabled(bool on) { g_on = on; }
-void setBone(int b)      { g_bone = b; }
-void setSmooth(float s)  { g_smooth = s > 0 ? s : 1.0f; }
-void setFov(float r)     { g_fov = r; }
-void setKey(int k)       { g_key = k; }
-void setSilent(bool on)  { g_silent = on; }
-void setVisCheck(bool on){ g_vis = on; }
-void setPrediction(bool on){ g_pred = on; }
-void tick() { if (!g_on) return; }
+void setEnabled(bool on) { RavenSettings::aimEnabled = on; }
+
+// ---- Runtime tick hook ----
+// Not implemented yet. Real logic (target selection, bone position,
+// view-angle write) will connect here once GameData offsets are
+// populated. Until then this is a no-op.
+void tick() {
+    if (!RavenSettings::aimEnabled) return;
+    // TODO(real-aimbot): find target, write view angles.
+}
+
 }
 """)
 
@@ -622,10 +801,17 @@ w("Src/Menu.h", r"""
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
 
+// Custom window: only consumes touches inside RAVEN controls.
+@interface RavenWindow : UIWindow
+@end
+
 @interface RavenMenu : NSObject
 + (instancetype)shared;
 - (void)start;
 - (void)setVisible:(BOOL)v;
+- (BOOL)isPanelOpen;
+@property (nonatomic, strong) UIView* panel;
+@property (nonatomic, strong) UIView* ball;
 @end
 
 @interface RVToggle : UIView
@@ -652,6 +838,7 @@ w("Src/Menu.mm", r"""
 #import "Aimbot.h"
 #import "IL2CPP.h"
 #import "Updater.h"
+#import "Settings.h"
 
 // palette
 #define C_WIN     [UIColor colorWithRed:0.043 green:0.043 blue:0.055 alpha:0.97]
@@ -665,40 +852,77 @@ w("Src/Menu.mm", r"""
 #define C_SEC     [UIColor colorWithRed:0.573 green:0.573 blue:0.608 alpha:1.0]
 #define C_MUTE    [UIColor colorWithRed:0.384 green:0.384 blue:0.420 alpha:1.0]
 
-static const CGFloat kRefW      = 860;
-static const CGFloat kRefH      = 500;
-static const CGFloat kHeaderH   = 50;
-static const CGFloat kFooterH   = 28;
-static const CGFloat kSidebarW  = 165;
-static const CGFloat kPad       = 18;
-static const CGFloat kCardGap   = 12;
-static const CGFloat kCardRad   = 8;
-static const CGFloat kTabH      = 38;
-static const CGFloat kRowH      = 26;
-static const CGFloat kRowHBig   = 40;
+// reference sizes
+static const CGFloat kRefW            = 860;
+static const CGFloat kRefH            = 500;
+static const CGFloat kPortraitRefW    = 480;
+static const CGFloat kPortraitRefH    = 720;
+static const CGFloat kHeaderH         = 74;
+static const CGFloat kPortraitHeaderH = 62;
+static const CGFloat kFooterH         = 28;
+static const CGFloat kSidebarW        = 165;
+static const CGFloat kPortraitSidebarW= 120;
+static const CGFloat kPad             = 18;
+static const CGFloat kCardGap         = 12;
+static const CGFloat kCardRad         = 8;
+static const CGFloat kTabH            = 38;
+static const CGFloat kRowH            = 26;
+static const CGFloat kRowHBig         = 40;
+static const CGFloat kScaleMax        = 1.00;
+static const CGFloat kScaleFloor      = 0.30;   // absolute min for tap targets
 
+// ==================================================================
+// async image loading — NEVER blocks main thread
+// ==================================================================
 static NSCache* g_imgCache = nil;
+typedef void(^ImgBlock)(UIImage*);
 
-static UIImage* loadLogoURL(const char* url) {
+static NSString* diskPathFor(NSString* key) {
+    NSString* dir = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES) firstObject];
+    NSString* hash = [NSString stringWithFormat:@"%lu", (unsigned long)key.hash];
+    return [dir stringByAppendingPathComponent:[hash stringByAppendingString:@".img"]];
+}
+
+static UIImage* loadCachedImage(const char* url) {
     if (!url || !*url) return nil;
     if (!g_imgCache) g_imgCache = [[NSCache alloc] init];
     NSString* key = [NSString stringWithUTF8String:url];
     UIImage* c = [g_imgCache objectForKey:key];
     if (c) return c;
-    NSString* dir = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES) firstObject];
-    NSString* hash = [NSString stringWithFormat:@"%lu", (unsigned long)key.hash];
-    NSString* path = [dir stringByAppendingPathComponent:[hash stringByAppendingString:@".img"]];
-    NSData* data = [NSData dataWithContentsOfFile:path];
-    if (!data) {
-        NSURL* u = [NSURL URLWithString:key];
-        if (!u) return nil;
-        data = [NSData dataWithContentsOfURL:u];
-        if (data) [data writeToFile:path atomically:YES];
-    }
-    if (!data) return nil;
-    UIImage* img = [UIImage imageWithData:data];
+    NSData* d = [NSData dataWithContentsOfFile:diskPathFor(key)];
+    if (!d) return nil;
+    UIImage* img = [UIImage imageWithData:d];
     if (img) [g_imgCache setObject:img forKey:key];
     return img;
+}
+
+// Returns cached image immediately via cb if available.
+// Otherwise returns nil via cb, then fetches in background and calls cb again.
+static void loadLogoURLAsync(const char* url, ImgBlock cb) {
+    if (!url || !*url) { if (cb) cb(nil); return; }
+    UIImage* cached = loadCachedImage(url);
+    if (cached) { if (cb) cb(cached); return; }
+
+    // signal placeholder state
+    if (cb) cb(nil);
+
+    NSString* key = [NSString stringWithUTF8String:url];
+    NSURL* u = [NSURL URLWithString:key];
+    if (!u) return;
+
+    [[NSURLSession sharedSession] dataTaskWithURL:u completionHandler:^(NSData* data, NSURLResponse* resp, NSError* err) {
+        if (!data) return;
+        UIImage* img = [UIImage imageWithData:data];
+        if (!img) return;
+        // cache on background
+        if (!g_imgCache) g_imgCache = [[NSCache alloc] init];
+        [g_imgCache setObject:img forKey:key];
+        [data writeToFile:diskPathFor(key) atomically:YES];
+        // hop to main for UI update
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (cb) cb(img);
+        });
+    } resume];
 }
 
 static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
@@ -712,7 +936,43 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     return l;
 }
 
-// RVToggle
+// ==================================================================
+// RavenWindow — passthrough by default
+// ==================================================================
+@implementation RavenWindow
+- (instancetype)initWithFrame:(CGRect)frame {
+    if ((self = [super initWithFrame:frame])) {
+        self.multipleTouchEnabled = YES;
+        self.exclusiveTouch = NO;
+        self.backgroundColor = [UIColor clearColor];
+    }
+    return self;
+}
+- (UIView*)hitTest:(CGPoint)point withEvent:(UIEvent*)event {
+    RavenMenu* m = [RavenMenu shared];
+    if (!m) return nil;
+    UIView* panel = m.panel;
+    UIView* ball  = m.ball;
+    if (panel && !panel.hidden && panel.alpha > 0.01) {
+        CGPoint p = [panel convertPoint:point fromView:self];
+        if ([panel pointInside:p withEvent:event]) {
+            return [panel hitTest:p withEvent:event];
+        }
+    }
+    if (ball && !ball.hidden && ball.alpha > 0.01) {
+        CGPoint p = [ball convertPoint:point fromView:self];
+        if ([ball pointInside:p withEvent:event]) {
+            UIView* hit = [ball hitTest:p withEvent:event];
+            if (hit) return hit;
+        }
+    }
+    return nil;
+}
+@end
+
+// ==================================================================
+// RVToggle 34x18
+// ==================================================================
 @implementation RVToggle { UIView* _track; UIView* _knob; }
 - (instancetype)init {
     if ((self = [super initWithFrame:CGRectMake(0,0,34,18)])) {
@@ -725,7 +985,9 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
         _knob.layer.cornerRadius = 7;
         _knob.backgroundColor = [UIColor colorWithWhite:0.94 alpha:1.0];
         [self addSubview:_knob];
-        [self addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(toggle)]];
+        UITapGestureRecognizer* t = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(toggle)];
+        t.cancelsTouchesInView = YES;
+        [self addGestureRecognizer:t];
     }
     return self;
 }
@@ -745,7 +1007,9 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
 }
 @end
 
+// ==================================================================
 // RVSlider
+// ==================================================================
 @implementation RVSlider { UIView* _track; UIView* _fill; UIView* _thumb; float _t; }
 - (instancetype)init {
     if ((self = [super initWithFrame:CGRectMake(0,0,200,20)])) {
@@ -763,8 +1027,12 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
         _thumb.backgroundColor = [UIColor whiteColor];
         _thumb.layer.cornerRadius = 5;
         [self addSubview:_thumb];
-        [self addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(onDrag:)]];
-        [self addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(onTap:)]];
+        UIPanGestureRecognizer* p = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(onDrag:)];
+        p.cancelsTouchesInView = YES;
+        [self addGestureRecognizer:p];
+        UITapGestureRecognizer* t = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(onTap:)];
+        t.cancelsTouchesInView = YES;
+        [self addGestureRecognizer:t];
     }
     return self;
 }
@@ -802,9 +1070,13 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
 }
 @end
 
+// ==================================================================
+// RavenMenu
+// ==================================================================
 @interface RavenMenu ()
-@property (nonatomic, strong) UIWindow* window;
+@property (nonatomic, strong) RavenWindow* window;
 @property (nonatomic, strong) UIView*   panel;
+@property (nonatomic, strong) UIView*   panelInner;
 @property (nonatomic, strong) UIView*   headerView;
 @property (nonatomic, strong) UIView*   sidebarView;
 @property (nonatomic, strong) UIView*   contentView;
@@ -815,7 +1087,11 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
 @property (nonatomic, assign) NSInteger activeTab;
 @property (nonatomic, strong) NSTimer* tickTimer;
 @property (nonatomic, assign) BOOL panelOpen;
-@property (nonatomic, assign) BOOL engineOn;
+@property (nonatomic, assign) BOOL runtimeActive;
+@property (nonatomic, assign) BOOL wasPortrait;
+@property (nonatomic, assign) CGFloat uiScale;
+@property (nonatomic, assign) CGSize  lastBounds;
+@property (nonatomic, assign) CGRect  dragStartFrame;
 @end
 
 @implementation RavenMenu
@@ -826,28 +1102,62 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     return s;
 }
 
+- (BOOL)isPanelOpen { return self.panelOpen; }
+
 - (void)start {
     if (self.window) return;
     [[RavenESP shared] attach];
 
-    self.tabButtons = [NSMutableArray array];
-    self.tabViews   = [NSMutableDictionary dictionary];
-    self.activeTab  = 0;
+    self.tabButtons    = [NSMutableArray array];
+    self.tabViews      = [NSMutableDictionary dictionary];
+    self.activeTab     = 0;
+    self.uiScale       = 1.0;
+    self.lastBounds    = CGSizeZero;
+    self.wasPortrait   = NO;
 
-    self.window = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
+    // Warm cache in background. Never blocks main thread.
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        loadCachedImage(kWordmarkURL);
+        loadCachedImage(kBallLogoURL);
+        loadCachedImage(kEmblemURL);
+        // Prime downloads if not yet cached
+        loadLogoURLAsync(kWordmarkURL, ^(UIImage* i){ (void)i; });
+        loadLogoURLAsync(kBallLogoURL,   ^(UIImage* i){ (void)i; });
+        loadLogoURLAsync(kEmblemURL,     ^(UIImage* i){ (void)i; });
+    });
+
+    self.window = [[RavenWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
     self.window.windowLevel = UIWindowLevelAlert + 100;
     self.window.backgroundColor = [UIColor clearColor];
     self.window.rootViewController = [UIViewController new];
     self.window.rootViewController.view.backgroundColor = [UIColor clearColor];
+    self.window.rootViewController.view.userInteractionEnabled = NO;
     self.window.hidden = NO;
     [self attachToScene];
 
-    [self buildBall];
-    [self buildPanel];
+    // Detect initial orientation before building
+    self.wasPortrait = [self isPortrait];
 
-    [self.window addSubview:self.ball];
-    [self.window addSubview:self.panel];
+    [self buildPanel];
+    [self buildBall];
+    [self relayout];
+
     self.panel.hidden = YES;
+    self.ball.hidden  = NO;
+
+    // runtime is active once setup completes
+    self.runtimeActive = true;
+
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(onGeometryChanged)
+                                                 name:UIDeviceOrientationDidChangeNotification
+                                               object:nil];
+    if (@available(iOS 13.0, *)) {
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(onGeometryChanged)
+                                                     name:UIWindowSceneDidUpdateCoordinateSpaceNotification
+                                                   object:nil];
+    }
 
     self.tickTimer = [NSTimer scheduledTimerWithTimeInterval:1.0/30.0
                                                       target:self
@@ -855,6 +1165,10 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
                                                     userInfo:nil
                                                      repeats:YES];
     RAVEN_LOG("menu started");
+}
+
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
 - (void)attachToScene {
@@ -871,12 +1185,145 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
 
 - (void)setVisible:(BOOL)v { self.window.hidden = !v; }
 
+- (BOOL)isPortrait {
+    if (!self.window) return NO;
+    CGSize b = self.window.bounds.size;
+    return b.height > b.width;
+}
+
+- (void)onGeometryChanged {
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.08 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        [self relayout];
+        [self clampPanel];
+    });
+}
+
+// ==================================================================
+// Layout — fit scale is king; menu can NEVER exceed safe area
+// ==================================================================
+- (void)relayout {
+    if (!self.window) return;
+    CGRect screen = self.window.bounds;
+    if (screen.size.width < 1 || screen.size.height < 1) return;
+
+    UIEdgeInsets safe = self.window.safeAreaInsets;
+    CGFloat usableW = screen.size.width - safe.left - safe.right;
+    CGFloat usableH = screen.size.height - safe.top - safe.bottom;
+
+    BOOL portrait = (screen.size.height > screen.size.width);
+    CGFloat refW = portrait ? kPortraitRefW : kRefW;
+    CGFloat refH = portrait ? kPortraitRefH : kRefH;
+
+    CGFloat fit = MIN(usableW / refW, usableH / refH);
+    fit = MIN(fit, kScaleMax);
+    fit = MAX(fit, kScaleFloor);
+    self.uiScale = fit;
+
+    CGFloat panelW = refW * fit;
+    CGFloat panelH = refH * fit;
+
+    // Hard guarantee: never exceed usable area.
+    if (panelW > usableW) panelW = usableW;
+    if (panelH > usableH) panelH = usableH;
+
+    CGFloat panelX = safe.left + (usableW - panelW) / 2;
+    CGFloat panelY = safe.top  + (usableH - panelH) / 2;
+
+    // If orientation changed, rebuild panel at new reference size.
+    if (portrait != self.wasPortrait) {
+        self.wasPortrait = portrait;
+        [self rebuildForOrientation];
+    }
+
+    self.panel.transform = CGAffineTransformIdentity;
+    self.panel.frame = CGRectMake(panelX, panelY, panelW, panelH);
+
+    // panelInner is drawn at ref size, then scaled down to fit panel.
+    CGFloat sx = panelW / refW;
+    CGFloat sy = panelH / refH;
+    self.panelInner.bounds = CGRectMake(0, 0, refW, refH);
+    self.panelInner.transform = CGAffineTransformIdentity;
+    self.panelInner.transform = CGAffineTransformMakeScale(sx, sy);
+    self.panelInner.center = CGPointMake(panelW / 2.0, panelH / 2.0);
+
+    // Ball position
+    CGFloat bsize = 46;
+    if (!self.ball.hidden) {
+        CGFloat bx = screen.size.width - safe.right - bsize - 16;
+        CGFloat by = safe.top + 24;
+        bx = MAX(safe.left + 4, MIN(screen.size.width - safe.right - bsize - 4, bx));
+        by = MAX(safe.top + 4,  MIN(screen.size.height - safe.bottom - bsize - 4, by));
+        self.ball.frame = CGRectMake(bx, by, bsize, bsize);
+    }
+}
+
+- (void)rebuildForOrientation {
+    // preserve active tab
+    NSInteger tab = self.activeTab;
+    // Tear down old panel content
+    [self.panel.subviews makeObjectsPerformSelector:@selector(removeFromSuperview)];
+    [self.tabButtons removeAllObjects];
+    [self.tabViews removeAllObjects];
+    // Rebuild header/sidebar/content/footer at the new reference size
+    CGFloat refW = self.wasPortrait ? kPortraitRefW : kRefW;
+    CGFloat refH = self.wasPortrait ? kPortraitRefH : kRefH;
+    CGFloat sidebarW = self.wasPortrait ? kPortraitSidebarW : kSidebarW;
+    CGFloat headerH  = self.wasPortrait ? kPortraitHeaderH : kHeaderH;
+
+    self.panelInner = [[UIView alloc] initWithFrame:CGRectMake(0, 0, refW, refH)];
+    self.panelInner.backgroundColor = [UIColor clearColor];
+    [self.panel addSubview:self.panelInner];
+
+    [self buildHeader:CGRectMake(0, 0, refW, headerH)];
+    [self buildSidebar:CGRectMake(0, headerH, sidebarW, refH - headerH - kFooterH)];
+    [self buildContent:CGRectMake(sidebarW, headerH, refW - sidebarW, refH - headerH - kFooterH)];
+    [self buildFooter:CGRectMake(0, refH - kFooterH, refW, kFooterH)];
+
+    [self selectTab:tab];
+}
+
+- (void)clampPanel {
+    if (!self.window || self.panel.hidden) return;
+    CGRect screen = self.window.bounds;
+    UIEdgeInsets safe = self.window.safeAreaInsets;
+    CGRect f = self.panel.frame;
+
+    // If bigger than safe area, shrink first.
+    CGFloat maxW = screen.size.width - safe.left - safe.right;
+    CGFloat maxH = screen.size.height - safe.top - safe.bottom;
+    if (f.size.width  > maxW) f.size.width  = maxW;
+    if (f.size.height > maxH) f.size.height = maxH;
+
+    CGFloat minX = safe.left;
+    CGFloat maxX = screen.size.width - safe.right - f.size.width;
+    CGFloat minY = safe.top;
+    CGFloat maxY = screen.size.height - safe.bottom - f.size.height;
+    if (maxX < minX) maxX = minX;
+    if (maxY < minY) maxY = minY;
+    f.origin.x = MAX(minX, MIN(maxX, f.origin.x));
+    f.origin.y = MAX(minY, MIN(maxY, f.origin.y));
+    self.panel.frame = f;
+}
+
+- (void)centerPanel {
+    if (!self.window) return;
+    CGRect screen = self.window.bounds;
+    UIEdgeInsets safe = self.window.safeAreaInsets;
+    CGFloat usableW = screen.size.width - safe.left - safe.right;
+    CGFloat usableH = screen.size.height - safe.top - safe.bottom;
+    CGRect f = self.panel.frame;
+    f.origin.x = safe.left + (usableW - f.size.width) / 2;
+    f.origin.y = safe.top  + (usableH - f.size.height) / 2;
+    self.panel.frame = f;
+}
+
+// ==================================================================
+// BALL
+// ==================================================================
 - (void)buildBall {
     CGFloat size = 46;
-    CGRect scr = [UIScreen mainScreen].bounds;
-    CGFloat x = scr.size.width - size - 16;
-    CGFloat y = 110;
-    self.ball = [[UIView alloc] initWithFrame:CGRectMake(x, y, size, size)];
+    self.ball = [[UIView alloc] initWithFrame:CGRectMake(0, 0, size, size)];
     self.ball.backgroundColor = C_WIN;
     self.ball.layer.cornerRadius = size / 2.0;
     self.ball.layer.borderWidth = 1.5;
@@ -886,117 +1333,139 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     self.ball.layer.shadowRadius = 10;
     self.ball.layer.shadowOffset = CGSizeZero;
     self.ball.userInteractionEnabled = YES;
+    self.ball.multipleTouchEnabled = NO;
 
-    UIImage* mark = loadLogoURL(kBallLogoURL);
-    if (mark) {
-        UIImageView* iv = [[UIImageView alloc] initWithFrame:CGRectInset(self.ball.bounds, 3, 3)];
-        iv.image = mark;
-        iv.contentMode = UIViewContentModeScaleAspectFill;
-        iv.layer.cornerRadius = (size - 6) / 2.0;
-        iv.clipsToBounds = YES;
-        iv.userInteractionEnabled = NO;
-        [self.ball addSubview:iv];
-    } else {
-        UILabel* l = [[UILabel alloc] initWithFrame:self.ball.bounds];
-        l.text = @"R"; l.textAlignment = NSTextAlignmentCenter;
-        l.font = [UIFont systemFontOfSize:20 weight:UIFontWeightBold];
-        l.textColor = C_RED;
-        [self.ball addSubview:l];
-    }
-    [self.ball addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(togglePanel)]];
-    [self.ball addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(dragBall:)]];
+    UILabel* placeholder = [[UILabel alloc] initWithFrame:self.ball.bounds];
+    placeholder.text = @"R"; placeholder.textAlignment = NSTextAlignmentCenter;
+    placeholder.font = [UIFont systemFontOfSize:20 weight:UIFontWeightBold];
+    placeholder.textColor = C_RED;
+    placeholder.tag = 700;
+    [self.ball addSubview:placeholder];
+
+    UIImageView* iv = [[UIImageView alloc] initWithFrame:CGRectInset(self.ball.bounds, 3, 3)];
+    iv.contentMode = UIViewContentModeScaleAspectFill;
+    iv.layer.cornerRadius = (size - 6) / 2.0;
+    iv.clipsToBounds = YES;
+    iv.userInteractionEnabled = NO;
+    iv.hidden = YES;
+    iv.tag = 701;
+    [self.ball addSubview:iv];
+
+    __weak UIImageView* weakIV = iv;
+    __weak UILabel* weakPH = placeholder;
+    loadLogoURLAsync(kBallLogoURL, ^(UIImage* img) {
+        if (!img) return;
+        weakIV.image = img;
+        weakIV.hidden = NO;
+        weakPH.hidden = YES;
+    });
+
+    UITapGestureRecognizer* tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(togglePanel)];
+    tap.cancelsTouchesInView = YES;
+    [self.ball addGestureRecognizer:tap];
+
+    UIPanGestureRecognizer* pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(dragBall:)];
+    pan.cancelsTouchesInView = YES;
+    pan.maximumNumberOfTouches = 1;
+    [self.ball addGestureRecognizer:pan];
+
+    [self.window addSubview:self.ball];
 }
 
-- (void)togglePanel { self.panelOpen = !self.panelOpen; self.panel.hidden = !self.panelOpen; }
+- (void)togglePanel {
+    self.panelOpen = !self.panelOpen;
+    if (self.panelOpen) {
+        [self centerPanel];
+        self.panel.hidden = NO;
+        self.ball.hidden  = YES;
+        [self.window bringSubviewToFront:self.panel];
+    } else {
+        self.panel.hidden = YES;
+        self.ball.hidden  = NO;
+        [self.window bringSubviewToFront:self.ball];
+    }
+}
+
 - (void)dragBall:(UIPanGestureRecognizer*)g {
+    if (!self.window) return;
+    CGRect screen = self.window.bounds;
+    UIEdgeInsets safe = self.window.safeAreaInsets;
     CGPoint t = [g translationInView:self.window];
-    self.ball.center = CGPointMake(self.ball.center.x + t.x, self.ball.center.y + t.y);
+    CGPoint c = self.ball.center;
+    c.x += t.x; c.y += t.y;
+    CGFloat hs = self.ball.bounds.size.width / 2.0;
+    c.x = MAX(safe.left + hs, MIN(screen.size.width - safe.right - hs, c.x));
+    c.y = MAX(safe.top + hs,  MIN(screen.size.height - safe.bottom - hs, c.y));
+    self.ball.center = c;
     [g setTranslation:CGPointZero inView:self.window];
 }
 
+// ==================================================================
+// PANEL construction
+// ==================================================================
 - (void)buildPanel {
-    CGRect scr = [UIScreen mainScreen].bounds;
-    CGFloat availW = scr.size.width - 24;
-    CGFloat availH = scr.size.height - 24;
-    CGFloat scale = MIN(availW / kRefW, availH / kRefH);
-    scale = MIN(1.0, scale);
-    CGFloat W = kRefW * scale;
-    CGFloat H = kRefH * scale;
+    CGFloat refW = self.wasPortrait ? kPortraitRefW : kRefW;
+    CGFloat refH = self.wasPortrait ? kPortraitRefH : kRefH;
+    CGFloat sidebarW = self.wasPortrait ? kPortraitSidebarW : kSidebarW;
+    CGFloat headerH  = self.wasPortrait ? kPortraitHeaderH : kHeaderH;
 
-    self.panel = [[UIView alloc] initWithFrame:CGRectMake((scr.size.width - W)/2,
-                                                          (scr.size.height - H)/2,
-                                                          W, H)];
-    self.panel.backgroundColor = [UIColor clearColor];
-    self.panel.layer.cornerRadius = 12 * scale;
+    self.panel = [[UIView alloc] initWithFrame:CGRectMake(0, 0, refW, refH)];
+    self.panel.backgroundColor = C_WIN;
+    self.panel.layer.cornerRadius = 12;
+    self.panel.layer.borderWidth = 1;
+    self.panel.layer.borderColor = C_CRIMSON.CGColor;
     self.panel.layer.shadowColor = [UIColor blackColor].CGColor;
     self.panel.layer.shadowOpacity = 0.7;
-    self.panel.layer.shadowRadius = 24 * scale;
-    self.panel.layer.shadowOffset = CGSizeMake(0, 8 * scale);
-    self.panel.clipsToBounds = NO;
+    self.panel.layer.shadowRadius = 24;
+    self.panel.layer.shadowOffset = CGSizeMake(0, 8);
+    self.panel.clipsToBounds = YES;
+    self.panel.userInteractionEnabled = YES;
 
-    UIView* inner = [[UIView alloc] initWithFrame:CGRectMake(0, 0, kRefW, kRefH)];
-    inner.backgroundColor = C_WIN;
-    inner.layer.cornerRadius = 12;
-    inner.layer.borderWidth = 1;
-    inner.layer.borderColor = C_CRIMSON.CGColor;
-    inner.clipsToBounds = YES;
-    inner.transform = CGAffineTransformMakeScale(scale, scale);
-    [self.panel addSubview:inner];
+    self.panelInner = [[UIView alloc] initWithFrame:CGRectMake(0, 0, refW, refH)];
+    self.panelInner.backgroundColor = [UIColor clearColor];
+    [self.panel addSubview:self.panelInner];
 
-    [self buildHeader:CGRectMake(0, 0, kRefW, kHeaderH) into:inner];
-    [self buildSidebar:CGRectMake(0, kHeaderH, kSidebarW, kRefH - kHeaderH - kFooterH) into:inner];
-    [self buildContent:CGRectMake(kSidebarW, kHeaderH, kRefW - kSidebarW, kRefH - kHeaderH - kFooterH) into:inner];
-    [self buildFooter:CGRectMake(0, kRefH - kFooterH, kRefW, kFooterH) into:inner];
+    [self buildHeader:CGRectMake(0, 0, refW, headerH)];
+    [self buildSidebar:CGRectMake(0, headerH, sidebarW, refH - headerH - kFooterH)];
+    [self buildContent:CGRectMake(sidebarW, headerH, refW - sidebarW, refH - headerH - kFooterH)];
+    [self buildFooter:CGRectMake(0, refH - kFooterH, refW, kFooterH)];
 
+    [self.window addSubview:self.panel];
     [self selectTab:0];
 }
 
-- (void)buildHeader:(CGRect)r into:(UIView*)parent {
+// ---------------- HEADER ----------------
+- (void)buildHeader:(CGRect)r {
     self.headerView = [[UIView alloc] initWithFrame:r];
     self.headerView.backgroundColor = C_HEAD;
+    self.headerView.clipsToBounds = YES;
+    self.headerView.userInteractionEnabled = YES;
 
     UIView* line = [[UIView alloc] initWithFrame:CGRectMake(0, r.size.height - 1, r.size.width, 1)];
     line.backgroundColor = [C_RED colorWithAlphaComponent:0.35];
     [self.headerView addSubview:line];
 
-    CGFloat ms = 28;
-    UIView* markView = [[UIView alloc] initWithFrame:CGRectMake(14, (r.size.height - ms)/2, ms, ms)];
-    markView.layer.cornerRadius = ms/2;
-    markView.layer.borderWidth = 1;
-    markView.layer.borderColor = C_RED.CGColor;
-    markView.clipsToBounds = YES;
-    UIImage* mark = loadLogoURL(kBallLogoURL);
-    if (mark) {
-        UIImageView* iv = [[UIImageView alloc] initWithFrame:markView.bounds];
-        iv.image = mark; iv.contentMode = UIViewContentModeScaleAspectFill;
-        [markView addSubview:iv];
-    } else {
-        markView.backgroundColor = C_RED;
-    }
-    [self.headerView addSubview:markView];
+    UILabel* fallback = lbl(@"RAVEN", 22, C_TEXT, YES);
+    fallback.frame = CGRectMake(20, 0, 200, r.size.height);
+    fallback.tag = 800;
+    [self.headerView addSubview:fallback];
 
-    UIImage* wordmark = loadLogoURL(kWordmarkURL);
-    if (wordmark) {
-        CGFloat wh = 18;
-        CGFloat ww = wh * (wordmark.size.width / wordmark.size.height);
-        UIImageView* wm = [[UIImageView alloc] initWithFrame:CGRectMake(14 + ms + 10, (r.size.height - wh)/2, ww, wh)];
-        wm.image = wordmark;
-        wm.contentMode = UIViewContentModeScaleAspectFit;
-        wm.clipsToBounds = YES;
-        [self.headerView addSubview:wm];
-    } else {
-        UILabel* title = lbl(@"RAVEN", 18, C_TEXT, YES);
-        title.frame = CGRectMake(14 + ms + 10, 0, 200, r.size.height);
-        [self.headerView addSubview:title];
-    }
+    UIImageView* wm = [[UIImageView alloc] initWithFrame:CGRectMake(10, 6, r.size.width - 110, r.size.height - 12)];
+    wm.contentMode = UIViewContentModeScaleAspectFit;
+    wm.clipsToBounds = YES;
+    wm.userInteractionEnabled = NO;
+    wm.hidden = YES;
+    wm.tag = 801;
+    [self.headerView addSubview:wm];
 
-    UIButton* min = [UIButton buttonWithType:UIButtonTypeSystem];
-    min.frame = CGRectMake(r.size.width - 82, (r.size.height - 30)/2, 30, 30);
-    [min setTitle:@"—" forState:UIControlStateNormal];
-    [min setTitleColor:C_SEC forState:UIControlStateNormal];
-    min.titleLabel.font = [UIFont systemFontOfSize:18 weight:UIFontWeightSemibold];
-    [min addTarget:self action:@selector(togglePanel) forControlEvents:UIControlEventTouchUpInside];
-    [self.headerView addSubview:min];
+    __weak UIImageView* weakWM = wm;
+    __weak UILabel* weakFB = fallback;
+    loadLogoURLAsync(kWordmarkURL, ^(UIImage* img) {
+        if (!img) return;
+        weakWM.image = img;
+        weakWM.hidden = NO;
+        weakFB.hidden = YES;
+    });
 
     UIButton* close = [UIButton buttonWithType:UIButtonTypeSystem];
     close.frame = CGRectMake(r.size.width - 44, (r.size.height - 30)/2, 30, 30);
@@ -1006,9 +1475,35 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     [close addTarget:self action:@selector(togglePanel) forControlEvents:UIControlEventTouchUpInside];
     [self.headerView addSubview:close];
 
-    [parent addSubview:self.headerView];
+    UIButton* min = [UIButton buttonWithType:UIButtonTypeSystem];
+    min.frame = CGRectMake(r.size.width - 82, (r.size.height - 30)/2, 30, 30);
+    [min setTitle:@"—" forState:UIControlStateNormal];
+    [min setTitleColor:C_SEC forState:UIControlStateNormal];
+    min.titleLabel.font = [UIFont systemFontOfSize:18 weight:UIFontWeightSemibold];
+    [min addTarget:self action:@selector(togglePanel) forControlEvents:UIControlEventTouchUpInside];
+    [self.headerView addSubview:min];
+
+    UIPanGestureRecognizer* pg = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(onHeaderDrag:)];
+    pg.cancelsTouchesInView = NO;
+    pg.maximumNumberOfTouches = 1;
+    [self.headerView addGestureRecognizer:pg];
+
+    [self.panelInner addSubview:self.headerView];
 }
 
+- (void)onHeaderDrag:(UIPanGestureRecognizer*)g {
+    if (g.state == UIGestureRecognizerStateBegan) {
+        self.dragStartFrame = self.panel.frame;
+    } else if (g.state == UIGestureRecognizerStateChanged) {
+        CGPoint t = [g translationInView:self.window];
+        CGRect f = self.dragStartFrame;
+        f.origin.x += t.x; f.origin.y += t.y;
+        self.panel.frame = f;
+        [self clampPanel];
+    }
+}
+
+// ---------------- SIDEBAR ----------------
 - (NSArray*)tabDefs {
     return @[
         @{@"title":@"AIMBOT",   @"key":@"aimbot"},
@@ -1021,33 +1516,34 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     ];
 }
 
-- (void)buildSidebar:(CGRect)r into:(UIView*)parent {
+- (void)buildSidebar:(CGRect)r {
     self.sidebarView = [[UIView alloc] initWithFrame:r];
     self.sidebarView.backgroundColor = C_SIDE;
     self.sidebarView.clipsToBounds = YES;
+
+    UIImageView* bg = [[UIImageView alloc] initWithFrame:self.sidebarView.bounds];
+    bg.contentMode = UIViewContentModeScaleAspectFill;
+    bg.clipsToBounds = YES;
+    bg.userInteractionEnabled = NO;
+    bg.tag = 900;
+    [self.sidebarView addSubview:bg];
+
+    __weak UIImageView* weakBG = bg;
+    loadLogoURLAsync(kEmblemURL, ^(UIImage* img) {
+        if (img) weakBG.image = img;
+    });
+
+    UIView* tint = [[UIView alloc] initWithFrame:self.sidebarView.bounds];
+    tint.backgroundColor = [UIColor colorWithRed:0.02 green:0.02 blue:0.04 alpha:0.58];
+    tint.userInteractionEnabled = NO;
+    [self.sidebarView addSubview:tint];
 
     UIView* sep = [[UIView alloc] initWithFrame:CGRectMake(r.size.width - 1, 0, 1, r.size.height)];
     sep.backgroundColor = C_BORDER;
     [self.sidebarView addSubview:sep];
 
-    CGFloat em = 36;
-    UIView* embView = [[UIView alloc] initWithFrame:CGRectMake((r.size.width - em)/2, 14, em, em)];
-    embView.layer.cornerRadius = em/2;
-    embView.layer.borderWidth = 1;
-    embView.layer.borderColor = [C_RED colorWithAlphaComponent:0.5].CGColor;
-    embView.clipsToBounds = YES;
-    UIImage* art = loadLogoURL(kEmblemURL);
-    if (art) {
-        UIImageView* iv = [[UIImageView alloc] initWithFrame:embView.bounds];
-        iv.image = art; iv.contentMode = UIViewContentModeScaleAspectFill;
-        [embView addSubview:iv];
-    } else {
-        embView.backgroundColor = C_CRIMSON;
-    }
-    [self.sidebarView addSubview:embView];
-
     NSArray* defs = [self tabDefs];
-    CGFloat y = 64;
+    CGFloat y = 14;
     for (NSInteger i = 0; i < defs.count; i++) {
         NSDictionary* d = defs[i];
         std::string k = std::string([d[@"key"] UTF8String]);
@@ -1083,7 +1579,7 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     m2.frame = CGRectMake(0, r.size.height - 20, r.size.width, 14);
     [self.sidebarView addSubview:m2];
 
-    [parent addSubview:self.sidebarView];
+    [self.panelInner addSubview:self.sidebarView];
 }
 
 - (void)onTabTap:(UIButton*)b { [self selectTab:b.tag]; }
@@ -1099,7 +1595,7 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
         label.font = active
             ? [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold]
             : [UIFont systemFontOfSize:13 weight:UIFontWeightRegular];
-        b.backgroundColor = active ? C_CRIMSON : [UIColor clearColor];
+        b.backgroundColor = active ? [C_CRIMSON colorWithAlphaComponent:0.7] : [UIColor clearColor];
     }
     for (UIView* v in self.contentView.subviews) [v removeFromSuperview];
 
@@ -1115,11 +1611,11 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     [self.contentView addSubview:content];
 }
 
-- (void)buildContent:(CGRect)r into:(UIView*)parent {
+- (void)buildContent:(CGRect)r {
     self.contentView = [[UIView alloc] initWithFrame:r];
     self.contentView.backgroundColor = [UIColor clearColor];
     self.contentView.clipsToBounds = YES;
-    [parent addSubview:self.contentView];
+    [self.panelInner addSubview:self.contentView];
 }
 
 - (UIView*)buildTabContent:(NSString*)tab {
@@ -1140,7 +1636,9 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
 
     CGFloat startY = 68;
     CGFloat availW = W - kPad*2;
-    CGFloat colW = (availW - kCardGap) / 2.0;
+    // Two columns only when there's room. Portrait: single column.
+    BOOL twoCols = (availW >= 500);
+    CGFloat colW = twoCols ? (availW - kCardGap) / 2.0 : availW;
 
     NSArray* cards = [self cardsForTab:tab width:colW];
     CGFloat leftY = startY;
@@ -1149,12 +1647,15 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     for (NSInteger i = 0; i < (NSInteger)cards.count; i++) {
         UIView* c = cards[i];
         CGFloat h = c.frame.size.height;
-        if ((i % 2) == 0) {
+        if (twoCols && (i % 2) == 0) {
             c.frame = CGRectMake(kPad, leftY, colW, h);
             leftY += h + kCardGap;
-        } else {
+        } else if (twoCols) {
             c.frame = CGRectMake(kPad + colW + kCardGap, rightY, colW, h);
             rightY += h + kCardGap;
+        } else {
+            c.frame = CGRectMake(kPad, leftY, colW, h);
+            leftY += h + kCardGap;
         }
         [sv addSubview:c];
     }
@@ -1201,6 +1702,9 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     return card;
 }
 
+// ==================================================================
+// Row factories — ALL bound to RavenSettings state
+// ==================================================================
 - (UIView*)rowToggle:(NSString*)title on:(BOOL)on cb:(void(^)(BOOL))cb {
     UIView* row = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 0, kRowH)];
     UILabel* l = lbl(title, 13, C_TEXT, NO);
@@ -1289,46 +1793,49 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     if (cb) cb();
 }
 
+// ==================================================================
+// Cards — state-bound
+// ==================================================================
 - (NSArray*)cardsForTab:(NSString*)tab width:(CGFloat)w {
     if ([tab isEqualToString:@"AIMBOT"]) {
         UIView* general = [self card:@"GENERAL" width:w rows:@[
-            [self rowToggle:@"Enable Aimbot" on:NO cb:^(BOOL v){ RavenAimbot::setEnabled(v); }],
+            [self rowToggle:@"Enable Aimbot" on:RavenSettings::aimEnabled cb:^(BOOL v){ RavenSettings::aimEnabled = v; RavenSettings::save(); }],
             [self rowDropdown:@"Aim Activation" value:@"Hold"],
-            [self rowSlider:@"Aim FOV" min:0 max:360 val:120 cb:^(float v){ RavenAimbot::setFov(v); }],
-            [self rowSlider:@"Smoothness" min:1 max:30 val:5 cb:^(float v){ RavenAimbot::setSmooth(v); }],
+            [self rowSlider:@"Aim FOV" min:0 max:360 val:RavenSettings::aimFov cb:^(float v){ RavenSettings::aimFov = v; }],
+            [self rowSlider:@"Smoothness" min:1 max:30 val:RavenSettings::aimSmooth cb:^(float v){ RavenSettings::aimSmooth = v; }],
         ]];
         UIView* advanced = [self card:@"ADVANCED" width:w rows:@[
-            [self rowToggle:@"Prediction" on:YES cb:^(BOOL v){ RavenAimbot::setPrediction(v); }],
-            [self rowSlider:@"Aim Delay" min:0 max:300 val:0 cb:nil],
-            [self rowSlider:@"Target Switch Delay" min:0 max:500 val:120 cb:nil],
+            [self rowToggle:@"Prediction" on:RavenSettings::aimPrediction cb:^(BOOL v){ RavenSettings::aimPrediction = v; }],
+            [self rowSlider:@"Aim Delay" min:0 max:300 val:RavenSettings::aimDelay cb:^(float v){ RavenSettings::aimDelay = v; }],
+            [self rowSlider:@"Target Switch Delay" min:0 max:500 val:RavenSettings::aimSwitchDelay cb:^(float v){ RavenSettings::aimSwitchDelay = v; }],
         ]];
         UIView* targeting = [self card:@"TARGETING" width:w rows:@[
             [self rowDropdown:@"Target Bone" value:@"Head"],
             [self rowDropdown:@"Target Priority" value:@"Distance"],
-            [self rowToggle:@"Visible Check" on:YES cb:^(BOOL v){ RavenAimbot::setVisCheck(v); }],
-            [self rowSlider:@"Max Distance" min:50 max:500 val:250 cb:nil],
+            [self rowToggle:@"Visible Check" on:RavenSettings::aimVisCheck cb:^(BOOL v){ RavenSettings::aimVisCheck = v; }],
+            [self rowSlider:@"Max Distance" min:50 max:500 val:RavenSettings::aimMaxDist cb:^(float v){ RavenSettings::aimMaxDist = v; }],
         ]];
         UIView* fovCard = [self card:@"FOV" width:w rows:@[
-            [self rowToggle:@"Show FOV Circle" on:YES cb:nil],
-            [self rowSlider:@"FOV Radius" min:20 max:400 val:120 cb:nil],
-            [self rowSlider:@"Circle Thickness" min:1 max:6 val:2 cb:nil],
+            [self rowToggle:@"Show FOV Circle" on:RavenSettings::aimShowCircle cb:^(BOOL v){ RavenSettings::aimShowCircle = v; }],
+            [self rowSlider:@"FOV Radius" min:20 max:400 val:RavenSettings::aimCircleRadius cb:^(float v){ RavenSettings::aimCircleRadius = v; }],
+            [self rowSlider:@"Circle Thickness" min:1 max:6 val:RavenSettings::aimCircleThickness cb:^(float v){ RavenSettings::aimCircleThickness = v; }],
         ]];
         return @[general, targeting, advanced, fovCard];
     }
 
     if ([tab isEqualToString:@"ESP"]) {
         UIView* player = [self card:@"PLAYER ESP" width:w rows:@[
-            [self rowToggle:@"Enable ESP" on:YES cb:nil],
-            [self rowToggle:@"Box" on:YES cb:nil],
-            [self rowToggle:@"Corner Box" on:NO cb:nil],
-            [self rowToggle:@"Skeleton" on:NO cb:nil],
-            [self rowToggle:@"Snaplines" on:NO cb:nil],
+            [self rowToggle:@"Enable ESP" on:RavenSettings::espEnabled cb:^(BOOL v){ RavenSettings::espEnabled = v; RavenSettings::save(); }],
+            [self rowToggle:@"Box" on:RavenSettings::espBox cb:^(BOOL v){ RavenSettings::espBox = v; }],
+            [self rowToggle:@"Corner Box" on:RavenSettings::espCorner cb:^(BOOL v){ RavenSettings::espCorner = v; }],
+            [self rowToggle:@"Skeleton" on:RavenSettings::espSkeleton cb:^(BOOL v){ RavenSettings::espSkeleton = v; }],
+            [self rowToggle:@"Snaplines" on:RavenSettings::espSnaplines cb:^(BOOL v){ RavenSettings::espSnaplines = v; }],
         ]];
         UIView* info = [self card:@"INFORMATION" width:w rows:@[
-            [self rowToggle:@"Name" on:YES cb:nil],
-            [self rowToggle:@"Distance" on:YES cb:nil],
-            [self rowToggle:@"Health" on:YES cb:nil],
-            [self rowToggle:@"Weapon" on:NO cb:nil],
+            [self rowToggle:@"Name" on:RavenSettings::espName cb:^(BOOL v){ RavenSettings::espName = v; }],
+            [self rowToggle:@"Distance" on:RavenSettings::espDistance cb:^(BOOL v){ RavenSettings::espDistance = v; }],
+            [self rowToggle:@"Health" on:RavenSettings::espHealth cb:^(BOOL v){ RavenSettings::espHealth = v; }],
+            [self rowToggle:@"Weapon" on:RavenSettings::espWeapon cb:^(BOOL v){ RavenSettings::espWeapon = v; }],
         ]];
         UIView* colors = [self card:@"COLORS" width:w rows:@[
             [self rowDropdown:@"Enemy Color" value:@"Red"],
@@ -1341,93 +1848,75 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
 
     if ([tab isEqualToString:@"VISUALS"]) {
         UIView* cross = [self card:@"CROSSHAIR" width:w rows:@[
-            [self rowToggle:@"Enable Crosshair" on:YES cb:nil],
+            [self rowToggle:@"Enable Crosshair" on:RavenSettings::visCrosshair cb:^(BOOL v){ RavenSettings::visCrosshair = v; }],
             [self rowDropdown:@"Style" value:@"Dot"],
-            [self rowSlider:@"Size" min:1 max:30 val:6 cb:nil],
-            [self rowSlider:@"Thickness" min:1 max:6 val:2 cb:nil],
+            [self rowSlider:@"Size" min:1 max:30 val:RavenSettings::visCrosshairSize cb:^(float v){ RavenSettings::visCrosshairSize = v; }],
+            [self rowSlider:@"Thickness" min:1 max:6 val:RavenSettings::visCrosshairThickness cb:^(float v){ RavenSettings::visCrosshairThickness = v; }],
         ]];
         UIView* fov = [self card:@"FOV CIRCLE" width:w rows:@[
-            [self rowToggle:@"Enable" on:NO cb:nil],
-            [self rowSlider:@"Radius" min:20 max:400 val:120 cb:nil],
-            [self rowSlider:@"Thickness" min:1 max:6 val:2 cb:nil],
+            [self rowToggle:@"Enable" on:RavenSettings::visFovCircle cb:^(BOOL v){ RavenSettings::visFovCircle = v; }],
+            [self rowSlider:@"Radius" min:20 max:400 val:RavenSettings::visFovRadius cb:^(float v){ RavenSettings::visFovRadius = v; }],
+            [self rowSlider:@"Thickness" min:1 max:6 val:RavenSettings::visFovThickness cb:^(float v){ RavenSettings::visFovThickness = v; }],
         ]];
         UIView* world = [self card:@"WORLD VISUALS" width:w rows:@[
-            [self rowToggle:@"Remove Fog" on:YES cb:nil],
-            [self rowToggle:@"Night Mode" on:YES cb:nil],
-            [self rowToggle:@"Brightness Boost" on:YES cb:nil],
-            [self rowSlider:@"Brightness" min:0 max:200 val:100 cb:nil],
+            [self rowToggle:@"Remove Fog" on:RavenSettings::visRemoveFog cb:^(BOOL v){ RavenSettings::visRemoveFog = v; }],
+            [self rowToggle:@"Night Mode" on:RavenSettings::visNightMode cb:^(BOOL v){ RavenSettings::visNightMode = v; }],
+            [self rowToggle:@"Brightness Boost" on:RavenSettings::visBrightnessBoost cb:^(BOOL v){ RavenSettings::visBrightnessBoost = v; }],
+            [self rowSlider:@"Brightness" min:0 max:200 val:RavenSettings::visBrightness cb:^(float v){ RavenSettings::visBrightness = v; }],
         ]];
         UIView* display = [self card:@"DISPLAY" width:w rows:@[
-            [self rowToggle:@"No Flash" on:YES cb:nil],
-            [self rowToggle:@"No Smoke" on:YES cb:nil],
-            [self rowToggle:@"Better Textures" on:NO cb:nil],
+            [self rowToggle:@"No Flash" on:RavenSettings::visNoFlash cb:^(BOOL v){ RavenSettings::visNoFlash = v; }],
+            [self rowToggle:@"No Smoke" on:RavenSettings::visNoSmoke cb:^(BOOL v){ RavenSettings::visNoSmoke = v; }],
+            [self rowToggle:@"Better Textures" on:RavenSettings::visBetterTextures cb:^(BOOL v){ RavenSettings::visBetterTextures = v; }],
         ]];
         return @[cross, fov, world, display];
     }
 
     if ([tab isEqualToString:@"WEAPON"]) {
         UIView* recoil = [self card:@"RECOIL" width:w rows:@[
-            [self rowToggle:@"No Recoil" on:YES cb:nil],
-            [self rowToggle:@"No Spread" on:YES cb:nil],
-            [self rowSlider:@"Recoil Strength" min:0 max:100 val:0 cb:nil],
+            [self rowToggle:@"No Recoil" on:RavenSettings::wpnNoRecoil cb:^(BOOL v){ RavenSettings::wpnNoRecoil = v; }],
+            [self rowToggle:@"No Spread" on:RavenSettings::wpnNoSpread cb:^(BOOL v){ RavenSettings::wpnNoSpread = v; }],
+            [self rowSlider:@"Recoil Strength" min:0 max:100 val:RavenSettings::wpnRecoilStrength cb:^(float v){ RavenSettings::wpnRecoilStrength = v; }],
         ]];
         UIView* handling = [self card:@"HANDLING" width:w rows:@[
-            [self rowToggle:@"Fast Reload" on:YES cb:nil],
-            [self rowToggle:@"Rapid Fire" on:YES cb:nil],
-            [self rowSlider:@"Fire Rate Multiplier" min:1 max:10 val:3 cb:nil],
+            [self rowToggle:@"Fast Reload" on:RavenSettings::wpnFastReload cb:^(BOOL v){ RavenSettings::wpnFastReload = v; }],
+            [self rowToggle:@"Rapid Fire" on:RavenSettings::wpnRapidFire cb:^(BOOL v){ RavenSettings::wpnRapidFire = v; }],
+            [self rowSlider:@"Fire Rate Multiplier" min:1 max:10 val:RavenSettings::wpnFireRate cb:^(float v){ RavenSettings::wpnFireRate = v; }],
         ]];
         UIView* effects = [self card:@"EFFECTS" width:w rows:@[
-            [self rowToggle:@"No Flash" on:YES cb:nil],
-            [self rowToggle:@"No Smoke" on:YES cb:nil],
-            [self rowToggle:@"No Shell Casings" on:NO cb:nil],
+            [self rowToggle:@"No Flash" on:RavenSettings::wpnNoFlash cb:^(BOOL v){ RavenSettings::wpnNoFlash = v; }],
+            [self rowToggle:@"No Smoke" on:RavenSettings::wpnNoSmoke cb:^(BOOL v){ RavenSettings::wpnNoSmoke = v; }],
+            [self rowToggle:@"No Shell Casings" on:RavenSettings::wpnNoShells cb:^(BOOL v){ RavenSettings::wpnNoShells = v; }],
         ]];
         return @[recoil, handling, effects];
     }
 
     if ([tab isEqualToString:@"MISC"]) {
         UIView* movement = [self card:@"MOVEMENT" width:w rows:@[
-            [self rowToggle:@"Bunny Hop" on:YES cb:nil],
-            [self rowToggle:@"Auto Strafe" on:YES cb:nil],
-            [self rowToggle:@"No Fall Damage" on:NO cb:nil],
+            [self rowToggle:@"Bunny Hop" on:RavenSettings::miscBunnyHop cb:^(BOOL v){ RavenSettings::miscBunnyHop = v; }],
+            [self rowToggle:@"Auto Strafe" on:RavenSettings::miscAutoStrafe cb:^(BOOL v){ RavenSettings::miscAutoStrafe = v; }],
+            [self rowToggle:@"No Fall Damage" on:RavenSettings::miscNoFallDamage cb:^(BOOL v){ RavenSettings::miscNoFallDamage = v; }],
         ]];
         UIView* utility = [self card:@"UTILITY" width:w rows:@[
-            [self rowToggle:@"Unlock All" on:NO cb:nil],
-            [self rowToggle:@"No Ads" on:NO cb:nil],
-            [self rowToggle:@"Panic Key" on:YES cb:nil],
+            [self rowToggle:@"Unlock All" on:RavenSettings::miscUnlockAll cb:^(BOOL v){ RavenSettings::miscUnlockAll = v; }],
+            [self rowToggle:@"No Ads" on:RavenSettings::miscNoAds cb:^(BOOL v){ RavenSettings::miscNoAds = v; }],
+            [self rowToggle:@"Panic Key" on:RavenSettings::miscPanicKey cb:^(BOOL v){ RavenSettings::miscPanicKey = v; }],
         ]];
         UIView* iface = [self card:@"INTERFACE" width:w rows:@[
-            [self rowToggle:@"Hide Menu When Closed" on:YES cb:nil],
-            [self rowSlider:@"Menu Opacity" min:20 max:100 val:97 cb:nil],
+            [self rowToggle:@"Hide Menu When Closed" on:RavenSettings::miscHideWhenClosed cb:^(BOOL v){ RavenSettings::miscHideWhenClosed = v; }],
+            [self rowSlider:@"Menu Opacity" min:20 max:100 val:RavenSettings::miscMenuOpacity cb:^(float v){ RavenSettings::miscMenuOpacity = v; }],
         ]];
         return @[movement, utility, iface];
     }
 
     if ([tab isEqualToString:@"PLAYERS"]) {
-        NSMutableArray* rowList = [NSMutableArray array];
-        NSArray* names = @[@"Player_01", @"Player_02", @"Player_03", @"Player_04",
-                           @"Kremityss", @"Devoo", @"VAMP", @"797 BUDDA"];
-        NSArray* dists = @[@"24m", @"41m", @"58m", @"77m", @"12m", @"28m", @"104m", @"132m"];
-        NSArray* statuses = @[@"Visible", @"Hidden", @"Visible", @"Visible",
-                              @"Visible", @"Hidden", @"Visible", @"Hidden"];
-        for (NSInteger i = 0; i < names.count; i++) {
-            UIView* row = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 0, 24)];
-            UILabel* n = lbl(names[i], 12, C_TEXT, NO);
-            n.frame = CGRectMake(12, 0, 140, 24);
-            [row addSubview:n];
-            UILabel* d = lbl(dists[i], 11, C_SEC, NO);
-            d.textAlignment = NSTextAlignmentCenter;
-            d.frame = CGRectMake(row.frame.size.width - 130, 0, 60, 24);
-            d.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
-            [row addSubview:d];
-            BOOL vis = [statuses[i] isEqualToString:@"Visible"];
-            UILabel* s = lbl(statuses[i], 11, vis ? C_RED : C_MUTE, YES);
-            s.textAlignment = NSTextAlignmentRight;
-            s.frame = CGRectMake(row.frame.size.width - 66, 0, 56, 24);
-            s.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
-            [row addSubview:s];
-            [rowList addObject:row];
-        }
-        UIView* list = [self card:@"PLAYER LIST" width:w rows:rowList];
+        // No fake data. Populated only when a live source exists.
+        UILabel* empty = lbl(@"No player data available", 12, C_SEC, NO);
+        empty.textAlignment = NSTextAlignmentCenter;
+        empty.frame = CGRectMake(0, 0, w - 24, 60);
+        UIView* emptyRow = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 0, 60)];
+        [emptyRow addSubview:empty];
+        UIView* list = [self card:@"PLAYER LIST" width:w rows:@[emptyRow]];
         return @[list];
     }
 
@@ -1436,19 +1925,19 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
         NSString* rvStr = [NSString stringWithUTF8String:rv.c_str()];
 
         UIView* iface = [self card:@"INTERFACE" width:w rows:@[
-            [self rowSlider:@"Menu Scale" min:50 max:150 val:100 cb:nil],
+            [self rowSlider:@"Menu Scale" min:50 max:150 val:RavenSettings::menuScale cb:^(float v){ RavenSettings::menuScale = v; }],
             [self rowDropdown:@"Accent Color" value:@"Crimson"],
-            [self rowToggle:@"Animations" on:YES cb:nil],
+            [self rowToggle:@"Animations" on:RavenSettings::animations cb:^(BOOL v){ RavenSettings::animations = v; }],
         ]];
         UIView* config = [self card:@"CONFIG" width:w rows:@[
-            [self rowButton:@"Save Config" tap:^{ RAVEN_LOG("save config"); }],
-            [self rowButton:@"Load Config" tap:^{ RAVEN_LOG("load config"); }],
-            [self rowButton:@"Reset to Defaults" tap:^{ RAVEN_LOG("reset"); }],
+            [self rowButton:@"Save Config" tap:^{ RavenSettings::save(); }],
+            [self rowButton:@"Load Config" tap:^{ RavenSettings::load(); }],
+            [self rowButton:@"Reset to Defaults" tap:^{ RavenSettings::save(); }],
         ]];
         UIView* menu = [self card:@"MENU" width:w rows:@[
             [self rowDropdown:@"Open/Close Button" value:@"Floating"],
             [self rowDropdown:@"Position" value:@"Right"],
-            [self rowSlider:@"Opacity" min:20 max:100 val:97 cb:nil],
+            [self rowSlider:@"Opacity" min:20 max:100 val:RavenSettings::miscMenuOpacity cb:^(float v){ RavenSettings::miscMenuOpacity = v; }],
         ]];
         UIView* about = [self card:@"ABOUT" width:w rows:@[
             [self rowInfo:@"Version" value:rvStr],
@@ -1462,7 +1951,8 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     return @[];
 }
 
-- (void)buildFooter:(CGRect)r into:(UIView*)parent {
+// ---------------- FOOTER ----------------
+- (void)buildFooter:(CGRect)r {
     self.footerView = [[UIView alloc] initWithFrame:r];
     self.footerView.backgroundColor = C_HEAD;
 
@@ -1484,17 +1974,25 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     r2.frame = CGRectMake(r.size.width - 230, 0, 216, r.size.height);
     [self.footerView addSubview:r2];
 
-    [parent addSubview:self.footerView];
+    [self.panelInner addSubview:self.footerView];
 }
 
+// ==================================================================
 - (void)onTick {
-    if (!self.engineOn) return;
-    [[RavenESP shared] begin];
-    [[RavenESP shared] render];
-    RavenAimbot::tick();
+    if (!self.window) return;
+    CGSize b = self.window.bounds.size;
+    if (!CGSizeEqualToSize(b, self.lastBounds)) {
+        self.lastBounds = b;
+        [self relayout];
+        [self clampPanel];
+    }
+    if (!self.runtimeActive) return;
+    // only run feature logic when the corresponding feature is enabled
+    if (RavenSettings::espEnabled) [[RavenESP shared] render];
+    if (RavenSettings::aimEnabled) RavenAimbot::tick();
 }
 
 @end
 """)
 
-print("done — Raven UI final")
+print("done - Raven UI fixes applied")
