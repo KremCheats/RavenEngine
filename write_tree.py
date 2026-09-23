@@ -792,8 +792,6 @@ w("Src/Menu.h", r"""
 - (void)start;
 - (void)setVisible:(BOOL)v;
 - (BOOL)isPanelOpen;
-@property (nonatomic, strong) UIView* panel;
-@property (nonatomic, strong) UIView* ball;
 @end
 
 @interface RVToggle : UIView
@@ -887,7 +885,9 @@ static void loadLogoURLAsync(const char* url, ImgBlock cb) {
     NSURL* u = [NSURL URLWithString:key];
     if (!u) return;
 
-    [[NSURLSession sharedSession] dataTaskWithURL:u completionHandler:^(NSData* data, NSURLResponse* resp, NSError* err) {
+    NSURLSessionDataTask* task =
+        [[NSURLSession sharedSession] dataTaskWithURL:u
+                                    completionHandler:^(NSData* data, NSURLResponse* resp, NSError* err) {
         if (!data) return;
         UIImage* img = [UIImage imageWithData:data];
         if (!img) return;
@@ -897,7 +897,8 @@ static void loadLogoURLAsync(const char* url, ImgBlock cb) {
         dispatch_async(dispatch_get_main_queue(), ^{
             if (cb) cb(img);
         });
-    } resume];
+    }];
+    [task resume];
 }
 
 static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
@@ -926,8 +927,9 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
 - (UIView*)hitTest:(CGPoint)point withEvent:(UIEvent*)event {
     RavenMenu* m = [RavenMenu shared];
     if (!m) return nil;
-    UIView* panel = m.panel;
-    UIView* ball  = m.ball;
+    // Access panel/ball through KVC since they're private.
+    UIView* panel = [m valueForKey:@"panel"];
+    UIView* ball  = [m valueForKey:@"ball"];
     if (panel && !panel.hidden && panel.alpha > 0.01) {
         CGPoint p = [panel convertPoint:point fromView:self];
         if ([panel pointInside:p withEvent:event]) {
@@ -1050,13 +1052,11 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
 // ==================================================================
 @interface RavenMenu ()
 @property (nonatomic, strong) RavenWindow* window;
-@property (nonatomic, strong) UIView*   panel;
 @property (nonatomic, strong) UIView*   panelInner;
 @property (nonatomic, strong) UIView*   headerView;
 @property (nonatomic, strong) UIView*   sidebarView;
 @property (nonatomic, strong) UIView*   contentView;
 @property (nonatomic, strong) UIView*   footerView;
-@property (nonatomic, strong) UIView*   ball;
 @property (nonatomic, strong) NSMutableArray* tabButtons;
 @property (nonatomic, strong) NSMutableDictionary* tabViews;
 @property (nonatomic, assign) NSInteger activeTab;
@@ -1067,6 +1067,9 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
 @property (nonatomic, assign) CGFloat uiScale;
 @property (nonatomic, assign) CGSize  lastBounds;
 @property (nonatomic, assign) CGRect  dragStartFrame;
+// panel + ball are redeclared as readwrite so internals can set them.
+@property (nonatomic, strong, readwrite) UIView* panel;
+@property (nonatomic, strong, readwrite) UIView* ball;
 @end
 
 @implementation RavenMenu
@@ -1122,12 +1125,10 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
                                              selector:@selector(onGeometryChanged)
                                                  name:UIDeviceOrientationDidChangeNotification
                                                object:nil];
-    if (@available(iOS 13.0, *)) {
-        [[NSNotificationCenter defaultCenter] addObserver:self
-                                                 selector:@selector(onGeometryChanged)
-                                                     name:UIWindowSceneDidUpdateCoordinateSpaceNotification
-                                                   object:nil];
-    }
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(onGeometryChanged)
+                                                 name:@"UIWindowSceneDidUpdateCoordinateSpaceNotification"
+                                               object:nil];
 
     self.tickTimer = [NSTimer scheduledTimerWithTimeInterval:1.0/30.0
                                                       target:self
