@@ -131,7 +131,7 @@ w("Src/Logos.h", r"""
 
 static const char* kWordmarkURL  = "https://i.imgur.com/Cnzjdjh.png";
 static const char* kBallLogoURL  = "https://i.imgur.com/MQG4stU.png";
-static const char* kEmblemURL    = "https://i.imgur.com/vLJmsVo.png";
+static const char* kEmblemURL    = "https://i.imgur.com/4H9W96B.png";
 
 static const char* kConfigURL = "https://raw.githubusercontent.com/KremCheats/RuntimeSupport/main/config.json";
 
@@ -1514,10 +1514,8 @@ static void forceLandscape(void) {
     __weak UIImageView* weakBG = bg;
     loadLogoURLAsync(kEmblemURL, ^(UIImage* img) {
         if (!img) return;
-        // vLJmsVo.png has wide black margins around the real vertical art.
-        // Crop to the bordered artwork before AspectFill so it fills the
-        // entire sidebar instead of looking like a poster inside a black box.
-        weakBG.image = cropNormalized(img, CGRectMake(0.230, 0.010, 0.540, 0.980));
+        // New sidebar asset is already composed as a full-bleed vertical banner.
+        weakBG.image = img;
     });
 
     // Keep only a light readability tint. The source artwork is already dark.
