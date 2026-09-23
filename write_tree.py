@@ -59,9 +59,12 @@ struct Vec3 { float x, y, z; };
 struct Matrix4x4 { float m[16]; };
 
 #define RAVEN_RED    [UIColor colorWithRed:0.769 green:0.118 blue:0.118 alpha:1.0]
+#define RAVEN_RED_DK [UIColor colorWithRed:0.400 green:0.060 blue:0.060 alpha:1.0]
 #define RAVEN_SILVER [UIColor colorWithRed:0.910 green:0.910 blue:0.910 alpha:1.0]
-#define RAVEN_BG     [UIColor colorWithRed:0.039 green:0.039 blue:0.039 alpha:0.95]
-#define RAVEN_DARK   [UIColor colorWithRed:0.102 green:0.102 blue:0.102 alpha:1.0]
+#define RAVEN_GREY   [UIColor colorWithRed:0.550 green:0.550 blue:0.580 alpha:1.0]
+#define RAVEN_BG     [UIColor colorWithRed:0.039 green:0.039 blue:0.039 alpha:0.98]
+#define RAVEN_DARK   [UIColor colorWithRed:0.075 green:0.075 blue:0.085 alpha:1.0]
+#define RAVEN_CARD   [UIColor colorWithRed:0.110 green:0.110 blue:0.120 alpha:0.9]
 
 #endif
 """)
@@ -73,7 +76,6 @@ w("Src/GameData.h", r"""
 #include <cstdint>
 
 namespace GameData {
-
     static const char* kLocalPlayerClass = "PlayerRoot";
     static const char* kPlayerListClass  = "PlayerManager";
     static const char* kCameraClass      = "Camera";
@@ -127,6 +129,7 @@ w("Src/Logos.h", r"""
 
 static const char* kBallLogoB64   = "";
 static const char* kHeaderLogoB64 = "";
+static const char* kSidebarArtB64 = "";
 
 #endif
 """)
@@ -141,7 +144,6 @@ w("Src/IL2CPP.h", r"""
 #include "Common.h"
 
 namespace IL2CPP {
-
     bool init();
     const char* status();
 
@@ -241,20 +243,17 @@ bool init() {
         snprintf(g_status, sizeof(g_status), "il2cpp exports missing");
         return false;
     }
-
     g_domain = p_domain_get();
     if (!g_domain) {
         snprintf(g_status, sizeof(g_status), "null domain");
         return false;
     }
     if (p_thread_attach) p_thread_attach(g_domain);
-
     snprintf(g_status, sizeof(g_status), "il2cpp ok");
     return true;
 }
 
 const char* status() { return g_status; }
-
 void* domain() { return g_domain; }
 
 void* image(const char* assembly) {
@@ -349,7 +348,6 @@ w("Src/ESP.h", r"""
 - (void)drawBox:(CGRect)r color:(UIColor*)c;
 - (void)drawLine:(CGPoint)a to:(CGPoint)b color:(UIColor*)c;
 - (void)drawText:(NSString*)s at:(CGPoint)p color:(UIColor*)c;
-
 @end
 #endif
 """)
@@ -370,20 +368,20 @@ w("Src/ESP.mm", r"""
 - (void)attach {
     if (self.window) return;
     self.window = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
-    self.window.windowLevel = UIWindowLevelNormal + 1;
+    self.window.windowLevel = UIWindowLevelNormal + 0.5;
     self.window.backgroundColor = [UIColor clearColor];
     self.window.userInteractionEnabled = NO;
     self.window.rootViewController = [UIViewController new];
     self.window.rootViewController.view.backgroundColor = [UIColor clearColor];
     self.window.hidden = YES;
 
-    self.boxes  = [CAShapeLayer layer];
+    self.boxes = [CAShapeLayer layer];
     self.boxes.frame = self.window.bounds;
     self.boxes.fillColor = [UIColor clearColor].CGColor;
     self.boxes.lineWidth = 1.5;
     self.boxes.strokeColor = RAVEN_RED.CGColor;
 
-    self.lines  = [CAShapeLayer layer];
+    self.lines = [CAShapeLayer layer];
     self.lines.frame = self.window.bounds;
     self.lines.fillColor = [UIColor clearColor].CGColor;
     self.lines.lineWidth = 1.0;
@@ -415,8 +413,12 @@ w("Src/ESP.mm", r"""
     }
 }
 
-- (void)begin { self.boxes.path = NULL; self.lines.path = NULL; self.labels.string = @""; }
-- (void)end   {}
+- (void)begin {
+    self.boxes.path = NULL;
+    self.lines.path = NULL;
+}
+
+- (void)end {}
 
 - (void)drawBox:(CGRect)r color:(UIColor*)c {
     UIBezierPath *p = [UIBezierPath bezierPathWithRect:r];
@@ -437,9 +439,6 @@ w("Src/ESP.mm", r"""
 }
 
 - (void)drawText:(NSString*)s at:(CGPoint)p color:(UIColor*)c {
-    NSMutableString *all = [NSMutableString stringWithString:self.labels.string ?: @""];
-    [all appendFormat:@"\n%@", s];
-    self.labels.string = all;
 }
 
 - (void)render {
@@ -458,6 +457,10 @@ namespace RavenAimbot {
     void setBone(int boneIdx);
     void setSmooth(float amount);
     void setFov(float radiusPx);
+    void setKey(int keyCode);
+    void setSilent(bool on);
+    void setVisCheck(bool on);
+    void setPrediction(bool on);
     void tick();
 }
 #endif
@@ -470,15 +473,23 @@ w("Src/Aimbot.mm", r"""
 
 namespace RavenAimbot {
 
-static bool g_on = false;
-static int  g_bone = GameData::Bone::Head;
-static float g_smooth = 3.0f;
-static float g_fov = 300.0f;
+static bool  g_on        = false;
+static int   g_bone      = GameData::Bone::Head;
+static float g_smooth    = 5.0f;
+static float g_fov       = 120.0f;
+static int   g_key       = 0;
+static bool  g_silent    = false;
+static bool  g_vis       = true;
+static bool  g_pred      = true;
 
 void setEnabled(bool on) { g_on = on; }
 void setBone(int b)      { g_bone = b; }
 void setSmooth(float s)  { g_smooth = s > 0 ? s : 1.0f; }
 void setFov(float r)     { g_fov = r; }
+void setKey(int k)       { g_key = k; }
+void setSilent(bool on)  { g_silent = on; }
+void setVisCheck(bool on){ g_vis = on; }
+void setPrediction(bool on){ g_pred = on; }
 
 void tick() {
     if (!g_on) return;
@@ -508,6 +519,9 @@ w("Src/Menu.mm", r"""
 #import "Aimbot.h"
 #import "IL2CPP.h"
 
+// ==================================================================
+// helpers
+// ==================================================================
 static UIImage* decodeB64(const char* b64) {
     if (!b64 || !*b64) return nil;
     NSString* s = [NSString stringWithUTF8String:b64];
@@ -516,13 +530,39 @@ static UIImage* decodeB64(const char* b64) {
     return d ? [UIImage imageWithData:d] : nil;
 }
 
+static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold) {
+    UILabel* l = [UILabel new];
+    l.text = text;
+    l.textColor = color;
+    l.font = bold ? [UIFont systemFontOfSize:size weight:UIFontWeightBold]
+                  : [UIFont systemFontOfSize:size weight:UIFontWeightMedium];
+    l.numberOfLines = 1;
+    return l;
+}
+
+// ==================================================================
+// RavenMenu
+// ==================================================================
 @interface RavenMenu ()
 @property (nonatomic, strong) UIWindow *window;
-@property (nonatomic, strong) UIView   *ball;
 @property (nonatomic, strong) UIView   *panel;
-@property (nonatomic, assign) BOOL      panelOpen;
-@property (nonatomic, assign) BOOL      engineOn;
-@property (nonatomic, strong) NSTimer  *tickTimer;
+@property (nonatomic, strong) UIView   *headerView;
+@property (nonatomic, strong) UIView   *sidebarView;
+@property (nonatomic, strong) UIView   *contentView;
+@property (nonatomic, strong) UIView   *footerView;
+@property (nonatomic, strong) UIView   *ball;
+@property (nonatomic, strong) NSMutableArray *tabButtons;
+@property (nonatomic, strong) NSMutableDictionary *tabViews;
+@property (nonatomic, assign) NSInteger activeTab;
+@property (nonatomic, strong) NSTimer *tickTimer;
+@property (nonatomic, assign) BOOL panelOpen;
+@property (nonatomic, assign) BOOL engineOn;
+
+// feature state mirrors (used by tab UI)
+@property (nonatomic, assign) BOOL aimOn;
+@property (nonatomic, assign) BOOL espOn;
+@property (nonatomic, assign) BOOL visOn;
+@property (nonatomic, assign) BOOL boxColor;
 @end
 
 @implementation RavenMenu
@@ -536,6 +576,10 @@ static UIImage* decodeB64(const char* b64) {
 - (void)start {
     if (self.window) return;
     [[RavenESP shared] attach];
+
+    self.tabButtons = [NSMutableArray array];
+    self.tabViews = [NSMutableDictionary dictionary];
+    self.activeTab = 0;
 
     self.window = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
     self.window.windowLevel = UIWindowLevelAlert + 100;
@@ -552,7 +596,8 @@ static UIImage* decodeB64(const char* b64) {
     [self.window addSubview:self.panel];
     self.panel.hidden = YES;
 
-    self.tickTimer = [NSTimer scheduledTimerWithTimeInterval:1.0/60.0
+    // 30 Hz — enough for smooth UI, gentle on the game
+    self.tickTimer = [NSTimer scheduledTimerWithTimeInterval:1.0/30.0
                                                       target:self
                                                     selector:@selector(onTick)
                                                     userInfo:nil
@@ -575,6 +620,9 @@ static UIImage* decodeB64(const char* b64) {
 
 - (void)setVisible:(BOOL)v { self.window.hidden = !v; }
 
+// ============================================================
+// BALL
+// ============================================================
 - (void)buildBall {
     CGFloat size = 56.0;
     CGFloat x = [UIScreen mainScreen].bounds.size.width - size - 20;
@@ -624,132 +672,456 @@ static UIImage* decodeB64(const char* b64) {
     [g setTranslation:CGPointZero inView:self.window];
 }
 
-- (UIView*)makeRowWithLabel:(NSString*)text control:(UIView*)ctrl {
-    UIView *row = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 260, 34)];
-    UILabel *l = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 140, 34)];
-    l.text = text;
-    l.textColor = RAVEN_SILVER;
-    l.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
-    ctrl.frame = CGRectMake(150, 4, 110, 26);
-    [row addSubview:l];
-    [row addSubview:ctrl];
-    return row;
-}
-
-- (UISwitch*)makeSwitch:(SEL)action on:(BOOL)on {
-    UISwitch *s = [[UISwitch alloc] init];
-    s.onTintColor = RAVEN_RED;
-    s.on = on;
-    [s addTarget:self action:action forControlEvents:UIControlEventValueChanged];
-    return s;
-}
-
-- (UISlider*)makeSlider:(SEL)action min:(float)mn max:(float)mx val:(float)v {
-    UISlider *s = [[UISlider alloc] init];
-    s.minimumValue = mn;
-    s.maximumValue = mx;
-    s.value = v;
-    s.minimumTrackTintColor = RAVEN_RED;
-    s.maximumTrackTintColor = RAVEN_DARK;
-    [s addTarget:self action:action forControlEvents:UIControlEventValueChanged];
-    return s;
-}
-
+// ============================================================
+// PANEL — header + sidebar + content + footer
+// ============================================================
 - (void)buildPanel {
-    CGFloat W = 280, H = 460;
-    CGFloat x = [UIScreen mainScreen].bounds.size.width - W - 12;
-    CGFloat y = 190;
-    self.panel = [[UIView alloc] initWithFrame:CGRectMake(x, y, W, H)];
+    CGRect scr = [UIScreen mainScreen].bounds;
+    CGFloat margin = 8;
+    CGFloat W = scr.size.width - margin*2;
+    CGFloat H = scr.size.height - margin*2;
+
+    self.panel = [[UIView alloc] initWithFrame:CGRectMake(margin, margin, W, H)];
     self.panel.backgroundColor = RAVEN_BG;
     self.panel.layer.cornerRadius = 14;
     self.panel.layer.borderWidth = 1;
-    self.panel.layer.borderColor = [RAVEN_RED colorWithAlphaComponent:0.5].CGColor;
-    self.panel.layer.shadowColor = [UIColor blackColor].CGColor;
-    self.panel.layer.shadowOpacity = 0.6;
-    self.panel.layer.shadowRadius = 16;
+    self.panel.layer.borderColor = [RAVEN_RED colorWithAlphaComponent:0.6].CGColor;
+    self.panel.layer.shadowColor = RAVEN_RED.CGColor;
+    self.panel.layer.shadowOpacity = 0.4;
+    self.panel.layer.shadowRadius = 20;
     self.panel.layer.shadowOffset = CGSizeMake(0, 6);
 
-    UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, W, 80)];
-    header.backgroundColor = [RAVEN_DARK colorWithAlphaComponent:0.9];
-    header.layer.cornerRadius = 14;
-    header.layer.maskedCorners = kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner;
+    CGFloat headerH = 96;
+    CGFloat footerH = 30;
+    CGFloat sidebarW = 120;
 
-    UIImage *headerLogo = decodeB64(kHeaderLogoB64);
-    if (headerLogo) {
-        UIImageView *hv = [[UIImageView alloc] initWithFrame:CGRectMake(10, 10, W-20, 48)];
-        hv.image = headerLogo;
-        hv.contentMode = UIViewContentModeScaleAspectFit;
-        [header addSubview:hv];
+    [self buildHeader:CGRectMake(0, 0, W, headerH)];
+    [self buildSidebar:CGRectMake(0, headerH, sidebarW, H - headerH - footerH)];
+    [self buildContent:CGRectMake(sidebarW, headerH, W - sidebarW, H - headerH - footerH)];
+    [self buildFooter:CGRectMake(0, H - footerH, W, footerH)];
+
+    [self.panel addSubview:self.headerView];
+    [self.panel addSubview:self.sidebarView];
+    [self.panel addSubview:self.contentView];
+    [self.panel addSubview:self.footerView];
+
+    [self selectTab:0];
+}
+
+// ---------------- HEADER ----------------
+- (void)buildHeader:(CGRect)r {
+    self.headerView = [[UIView alloc] initWithFrame:r];
+    self.headerView.backgroundColor = RAVEN_DARK;
+    self.headerView.layer.cornerRadius = 14;
+    self.headerView.layer.maskedCorners = kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner;
+    self.headerView.layer.borderWidth = 1;
+    self.headerView.layer.borderColor = [RAVEN_RED colorWithAlphaComponent:0.4].CGColor;
+
+    // logo / title
+    UIImage *logo = decodeB64(kHeaderLogoB64);
+    if (logo) {
+        UIImageView *iv = [[UIImageView alloc] initWithFrame:CGRectMake(10, 10, 180, 60)];
+        iv.image = logo;
+        iv.contentMode = UIViewContentModeScaleAspectFit;
+        [self.headerView addSubview:iv];
     } else {
-        UILabel *t = [[UILabel alloc] initWithFrame:CGRectMake(0, 12, W, 28)];
-        t.text = @"RAVEN";
-        t.textAlignment = NSTextAlignmentCenter;
-        t.textColor = RAVEN_RED;
-        t.font = [UIFont boldSystemFontOfSize:22];
-        [header addSubview:t];
+        UILabel *title = mkLabel(@"RAVEN", 30, RAVEN_RED, YES);
+        title.frame = CGRectMake(16, 8, 200, 36);
+        [self.headerView addSubview:title];
+        UILabel *byline = mkLabel(@"BY KREMCHEATS   DEV: KREMIT YSS", 9, RAVEN_SILVER, NO);
+        byline.frame = CGRectMake(18, 44, 200, 14);
+        [self.headerView addSubview:byline];
     }
-    UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(0, 54, W, 18)];
-    ver.text = @"v1 - @Kremityss";
-    ver.textAlignment = NSTextAlignmentCenter;
-    ver.textColor = RAVEN_SILVER;
-    ver.font = [UIFont systemFontOfSize:10 weight:UIFontWeightLight];
-    [header addSubview:ver];
 
-    [self.panel addSubview:header];
+    // tagline center
+    CGFloat cx = r.size.width / 2;
+    UILabel *tag = mkLabel(@"\"DOMINATE DIFFERENTLY\"", 11, RAVEN_SILVER, NO);
+    tag.textAlignment = NSTextAlignmentCenter;
+    tag.frame = CGRectMake(cx - 120, 12, 240, 16);
+    [self.headerView addSubview:tag];
+    UILabel *sub = mkLabel(@"PRECISION  |  CONTROL  |  SUPERIORITY", 10, RAVEN_GREY, NO);
+    sub.textAlignment = NSTextAlignmentCenter;
+    sub.frame = CGRectMake(cx - 140, 30, 280, 14);
+    [self.headerView addSubview:sub];
+
+    // right status
+    UILabel *v = mkLabel(@"v1.0.0", 11, RAVEN_SILVER, NO);
+    v.textAlignment = NSTextAlignmentRight;
+    v.frame = CGRectMake(r.size.width - 130, 12, 100, 16);
+    [self.headerView addSubview:v];
+
+    UIView *dot = [[UIView alloc] initWithFrame:CGRectMake(r.size.width - 128, 40, 8, 8)];
+    dot.backgroundColor = [UIColor colorWithRed:0.2 green:0.9 blue:0.3 alpha:1.0];
+    dot.layer.cornerRadius = 4;
+    [self.headerView addSubview:dot];
+    UILabel *inj = mkLabel(@"Injected", 11, RAVEN_SILVER, NO);
+    inj.frame = CGRectMake(r.size.width - 116, 34, 80, 18);
+    [self.headerView addSubview:inj];
+
+    // minimize / close
+    UIButton *minBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    minBtn.frame = CGRectMake(r.size.width - 90, 60, 36, 28);
+    [minBtn setTitle:@"—" forState:UIControlStateNormal];
+    [minBtn setTitleColor:RAVEN_RED forState:UIControlStateNormal];
+    minBtn.titleLabel.font = [UIFont boldSystemFontOfSize:22];
+    [minBtn addTarget:self action:@selector(togglePanel) forControlEvents:UIControlEventTouchUpInside];
+    [self.headerView addSubview:minBtn];
 
     UIButton *close = [UIButton buttonWithType:UIButtonTypeSystem];
-    close.frame = CGRectMake(W - 44, 10, 34, 34);
+    close.frame = CGRectMake(r.size.width - 46, 60, 36, 28);
     [close setTitle:@"X" forState:UIControlStateNormal];
     [close setTitleColor:RAVEN_RED forState:UIControlStateNormal];
-    close.titleLabel.font = [UIFont systemFontOfSize:20 weight:UIFontWeightBold];
+    close.titleLabel.font = [UIFont boldSystemFontOfSize:18];
     [close addTarget:self action:@selector(togglePanel) forControlEvents:UIControlEventTouchUpInside];
-    [self.panel addSubview:close];
+    [self.headerView addSubview:close];
+}
 
-    UIScrollView *sv = [[UIScrollView alloc] initWithFrame:CGRectMake(10, 90, W - 20, H - 100)];
+// ---------------- SIDEBAR ----------------
+- (NSArray*)tabDefs {
+    return @[
+        @{@"title":@"AIMBOT",   @"icon":@"scope"},
+        @{@"title":@"ESP",      @"icon":@"eye.fill"},
+        @{@"title":@"VISUALS",  @"icon":@"sparkles.tv.fill"},
+        @{@"title":@"MISC",     @"icon":@"gearshape.2.fill"},
+        @{@"title":@"PLAYERS",  @"icon":@"person.2.fill"},
+        @{@"title":@"CONFIG",   @"icon":@"doc.text.fill"},
+        @{@"title":@"SETTINGS", @"icon":@"gear"},
+    ];
+}
+
+- (void)buildSidebar:(CGRect)r {
+    self.sidebarView = [[UIView alloc] initWithFrame:r];
+    self.sidebarView.backgroundColor = [RAVEN_DARK colorWithAlphaComponent:0.5];
+
+    NSArray *defs = [self tabDefs];
+    CGFloat y = 12;
+    CGFloat h = 48;
+
+    for (NSInteger i = 0; i < defs.count; i++) {
+        NSDictionary *d = defs[i];
+
+        UIButton *btn = [UIButton buttonWithType:UIButtonTypeCustom];
+        btn.frame = CGRectMake(8, y, r.size.width - 16, h);
+        btn.tag = i;
+        btn.backgroundColor = [UIColor clearColor];
+        btn.layer.cornerRadius = 8;
+        [btn addTarget:self action:@selector(onTabTap:) forControlEvents:UIControlEventTouchUpInside];
+
+        UIImageView *icon = nil;
+        if (@available(iOS 13.0, *)) {
+            UIImage *img = [UIImage systemImageNamed:d[@"icon"]];
+            icon = [[UIImageView alloc] initWithImage:img];
+            icon.tintColor = RAVEN_RED;
+            icon.frame = CGRectMake(8, h/2 - 10, 20, 20);
+        }
+        if (icon) [btn addSubview:icon];
+
+        UILabel *label = mkLabel(d[@"title"], 12, RAVEN_SILVER, YES);
+        label.frame = CGRectMake(icon ? 36 : 12, 0, btn.frame.size.width - 44, h);
+        [btn addSubview:label];
+
+        [self.sidebarView addSubview:btn];
+        [self.tabButtons addObject:btn];
+        y += h + 4;
+    }
+
+    // sidebar art (raven)
+    UIImage *art = decodeB64(kSidebarArtB64);
+    CGFloat artTop = y + 10;
+    CGFloat artH = r.size.height - artTop - 20;
+    if (artH > 60) {
+        UIImageView *iv = [[UIImageView alloc] initWithFrame:CGRectMake(10, artTop, r.size.width - 20, artH)];
+        if (art) {
+            iv.image = art;
+            iv.contentMode = UIViewContentModeScaleAspectFit;
+        } else {
+            iv.backgroundColor = [UIColor clearColor];
+        }
+        [self.sidebarView addSubview:iv];
+
+        UILabel *motto = mkLabel(@"\"SEE MORE\nBE BETTER\"", 9, RAVEN_RED, NO);
+        motto.numberOfLines = 2;
+        motto.textAlignment = NSTextAlignmentCenter;
+        motto.frame = CGRectMake(0, r.size.height - 40, r.size.width, 30);
+        [self.sidebarView addSubview:motto];
+    }
+}
+
+- (void)onTabTap:(UIButton*)b {
+    [self selectTab:b.tag];
+}
+
+- (void)selectTab:(NSInteger)idx {
+    self.activeTab = idx;
+    for (NSInteger i = 0; i < self.tabButtons.count; i++) {
+        UIButton *b = self.tabButtons[i];
+        b.backgroundColor = (i == idx) ? [RAVEN_RED colorWithAlphaComponent:0.18] : [UIColor clearColor];
+    }
+    for (UIView *v in self.contentView.subviews) [v removeFromSuperview];
+
+    NSArray *defs = [self tabDefs];
+    NSString *key = defs[idx][@"title"];
+    UIView *content = self.tabViews[key];
+    if (!content) {
+        content = [self buildTabContent:key];
+        self.tabViews[key] = content;
+    }
+    content.frame = self.contentView.bounds;
+    [self.contentView addSubview:content];
+}
+
+// ---------------- CONTENT ----------------
+- (void)buildContent:(CGRect)r {
+    self.contentView = [[UIView alloc] initWithFrame:r];
+    self.contentView.backgroundColor = [UIColor clearColor];
+}
+
+- (UIView*)buildTabContent:(NSString*)tab {
+    UIScrollView *sv = [[UIScrollView alloc] initWithFrame:self.contentView.bounds];
+    sv.backgroundColor = [UIColor clearColor];
     sv.showsVerticalScrollIndicator = NO;
 
-    NSArray *rows = @[
-        [self makeRowWithLabel:@"Engine"      control:[self makeSwitch:@selector(onEngine) on:NO]],
-        [self makeRowWithLabel:@"ESP"         control:[self makeSwitch:@selector(onESP) on:YES]],
-        [self makeRowWithLabel:@"Aimbot"      control:[self makeSwitch:@selector(onAim) on:NO]],
-        [self makeRowWithLabel:@"Visibility"  control:[self makeSwitch:@selector(onVis) on:YES]],
-        [self makeRowWithLabel:@"FOV"         control:[self makeSlider:@selector(onFOV) min:50 max:800 val:300]],
-        [self makeRowWithLabel:@"Smooth"      control:[self makeSlider:@selector(onSmooth) min:1 max:10 val:3]],
-        [self makeRowWithLabel:@"Aim Power"   control:[self makeSlider:@selector(onPower) min:0.1 max:1.0 val:0.6]],
-        [self makeRowWithLabel:@"Box Color"   control:[self makeSwitch:@selector(onColor) on:NO]],
-    ];
+    CGFloat pad = 10;
+    CGFloat y = pad;
+    CGFloat W = sv.bounds.size.width - pad*2;
+    if (W < 100) W = 260;
 
-    CGFloat yOff = 0;
+    NSArray *rows = [self rowsForTab:tab];
+
     for (UIView *row in rows) {
-        row.frame = CGRectMake(0, yOff, W - 20, 34);
+        row.frame = CGRectMake(pad, y, W, row.frame.size.height);
         [sv addSubview:row];
-        yOff += 40;
+        y += row.frame.size.height + 6;
     }
-    sv.contentSize = CGSizeMake(W - 20, yOff + 20);
-    [self.panel addSubview:sv];
 
-    UIPanGestureRecognizer *pp = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(dragPanel:)];
-    [header addGestureRecognizer:pp];
+    sv.contentSize = CGSizeMake(W, y + 20);
+    return sv;
 }
 
-- (void)dragPanel:(UIPanGestureRecognizer*)g {
-    CGPoint t = [g translationInView:self.window];
-    self.panel.center = CGPointMake(self.panel.center.x + t.x, self.panel.center.y + t.y);
-    [g setTranslation:CGPointZero inView:self.window];
+// ---------------- ROWS FOR EACH TAB ----------------
+- (NSArray*)rowsForTab:(NSString*)tab {
+    if ([tab isEqualToString:@"AIMBOT"]) {
+        return @[
+            [self switchRow:@"Enable Aimbot" sel:@selector(onAimToggle:) on:NO],
+            [self dropdownRow:@"Aim Key" value:@"LMB"],
+            [self sliderRow:@"Aim FOV" min:0 max:360 val:120 sel:@selector(onAimFov:)],
+            [self sliderRow:@"Smoothness" min:1 max:30 val:5 sel:@selector(onAimSmooth:)],
+            [self dropdownRow:@"Target Bone" value:@"Head"],
+            [self switchRow:@"Prediction" sel:@selector(onAimPred:) on:YES],
+            [self switchRow:@"Visibility Check" sel:@selector(onAimVis:) on:YES],
+            [self switchRow:@"Ignore Knocked" sel:@selector(onNoop:) on:NO],
+            [self switchRow:@"Silent Aim" sel:@selector(onAimSilent:) on:NO],
+        ];
+    }
+    if ([tab isEqualToString:@"ESP"]) {
+        return @[
+            [self switchRow:@"Enable ESP" sel:@selector(onEspToggle:) on:YES],
+            [self switchRow:@"Box ESP" sel:@selector(onNoop:) on:YES],
+            [self switchRow:@"Skeleton" sel:@selector(onNoop:) on:NO],
+            [self switchRow:@"Player Names" sel:@selector(onNoop:) on:YES],
+            [self switchRow:@"Distance" sel:@selector(onNoop:) on:YES],
+            [self switchRow:@"Health Bar" sel:@selector(onNoop:) on:YES],
+            [self switchRow:@"Weapon ESP" sel:@selector(onNoop:) on:NO],
+            [self switchRow:@"Snaplines" sel:@selector(onNoop:) on:NO],
+            [self switchRow:@"Visible Only" sel:@selector(onNoop:) on:YES],
+        ];
+    }
+    if ([tab isEqualToString:@"VISUALS"]) {
+        return @[
+            [self switchRow:@"No Recoil" sel:@selector(onNoop:) on:YES],
+            [self switchRow:@"No Spread" sel:@selector(onNoop:) on:YES],
+            [self sliderRow:@"FOV Changer" min:60 max:140 val:110 sel:@selector(onNoopSlider:)],
+            [self switchRow:@"Remove Fog" sel:@selector(onNoop:) on:YES],
+            [self switchRow:@"Better Textures" sel:@selector(onNoop:) on:YES],
+            [self switchRow:@"Night Mode" sel:@selector(onNoop:) on:YES],
+            [self dropdownRow:@"Crosshair" value:@"Dot"],
+            [self sliderRow:@"Brightness" min:0 max:200 val:100 sel:@selector(onNoopSlider:)],
+        ];
+    }
+    if ([tab isEqualToString:@"MISC"]) {
+        return @[
+            [self switchRow:@"Bunny Hop" sel:@selector(onNoop:) on:YES],
+            [self switchRow:@"Auto Strafe" sel:@selector(onNoop:) on:YES],
+            [self switchRow:@"Rapid Fire" sel:@selector(onNoop:) on:YES],
+            [self switchRow:@"No Flash" sel:@selector(onNoop:) on:YES],
+            [self switchRow:@"No Smoke" sel:@selector(onNoop:) on:YES],
+            [self switchRow:@"Fast Reload" sel:@selector(onNoop:) on:YES],
+            [self switchRow:@"Unlock All" sel:@selector(onNoop:) on:NO],
+        ];
+    }
+    if ([tab isEqualToString:@"PLAYERS"]) {
+        NSMutableArray *rows = [NSMutableArray array];
+        NSArray *names = @[@"Kremityss 12m", @"Devoo 28m", @"VAMP 41m", @"797 BUDDA 63m",
+                           @"Player123 87m", @"User456 104m", @"Enemy 132m", @"Target 148m"];
+        for (NSString *n in names) {
+            [rows addObject:[self listRow:n]];
+        }
+        return rows;
+    }
+    if ([tab isEqualToString:@"CONFIG"]) {
+        return @[
+            [self dropdownRow:@"Preset" value:@"Legit"],
+            [self buttonRow:@"Load Config" sel:@selector(onNoopTap:)],
+            [self buttonRow:@"Save Config" sel:@selector(onNoopTap:)],
+            [self buttonRow:@"Delete Config" sel:@selector(onNoopTap:)],
+        ];
+    }
+    if ([tab isEqualToString:@"SETTINGS"]) {
+        return @[
+            [self infoRow:@"Version" value:@"1.0.0"],
+            [self infoRow:@"Developer" value:@"Kremityss"],
+            [self infoRow:@"Brand" value:@"KREMCHEATS"],
+            [self switchRow:@"Stream Proof" sel:@selector(onNoop:) on:NO],
+            [self switchRow:@"Panic Key" sel:@selector(onNoop:) on:YES],
+        ];
+    }
+    return @[];
 }
 
-- (void)onEngine:(UISwitch*)s {
-    self.engineOn = s.on;
-    if (s.on) { [[RavenESP shared] begin]; }
-    RAVEN_LOG("engine %d", s.on);
+// ---------------- ROW BUILDERS ----------------
+- (UIView*)baseRow {
+    UIView *row = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 280, 44)];
+    row.backgroundColor = RAVEN_CARD;
+    row.layer.cornerRadius = 8;
+    row.layer.borderWidth = 1;
+    row.layer.borderColor = [RAVEN_RED colorWithAlphaComponent:0.18].CGColor;
+    return row;
 }
-- (void)onESP:(UISwitch*)s    { RAVEN_LOG("esp %d", s.on); }
-- (void)onAim:(UISwitch*)s    { RavenAimbot::setEnabled(s.on); }
-- (void)onVis:(UISwitch*)s    { RAVEN_LOG("vis %d", s.on); }
-- (void)onFOV:(UISlider*)s    { RavenAimbot::setFov(s.value); }
-- (void)onSmooth:(UISlider*)s { RavenAimbot::setSmooth(s.value); }
-- (void)onPower:(UISlider*)s  { RAVEN_LOG("power %.2f", s.value); }
-- (void)onColor:(UISwitch*)s  { RAVEN_LOG("color %d", s.on); }
+
+- (UIView*)switchRow:(NSString*)title sel:(SEL)sel on:(BOOL)on {
+    UIView *row = [self baseRow];
+    UILabel *l = mkLabel(title, 13, RAVEN_SILVER, NO);
+    l.frame = CGRectMake(14, 0, row.frame.size.width - 90, row.frame.size.height);
+    [row addSubview:l];
+
+    UISwitch *sw = [[UISwitch alloc] init];
+    sw.onTintColor = RAVEN_RED;
+    sw.on = on;
+    sw.transform = CGAffineTransformMakeScale(0.75, 0.75);
+    sw.center = CGPointMake(row.frame.size.width - 40, row.frame.size.height / 2);
+    [sw addTarget:self action:sel forControlEvents:UIControlEventValueChanged];
+    [row addSubview:sw];
+    return row;
+}
+
+- (UIView*)sliderRow:(NSString*)title min:(float)mn max:(float)mx val:(float)v sel:(SEL)sel {
+    UIView *row = [self baseRow];
+    row.frame = CGRectMake(0, 0, 280, 54);
+
+    UILabel *l = mkLabel(title, 13, RAVEN_SILVER, NO);
+    l.frame = CGRectMake(14, 4, 160, 20);
+    [row addSubview:l];
+
+    UILabel *val = mkLabel([NSString stringWithFormat:@"%.0f", v], 12, RAVEN_RED, YES);
+    val.textAlignment = NSTextAlignmentRight;
+    val.frame = CGRectMake(row.frame.size.width - 60, 4, 46, 20);
+    [row addSubview:val];
+
+    UISlider *sl = [[UISlider alloc] init];
+    sl.frame = CGRectMake(14, 28, row.frame.size.width - 28, 22);
+    sl.minimumValue = mn;
+    sl.maximumValue = mx;
+    sl.value = v;
+    sl.minimumTrackTintColor = RAVEN_RED;
+    sl.maximumTrackTintColor = [UIColor colorWithWhite:0.25 alpha:1.0];
+    sl.thumbTintColor = [UIColor whiteColor];
+    [sl addTarget:self action:sel forControlEvents:UIControlEventValueChanged];
+    [row addSubview:sl];
+    return row;
+}
+
+- (UIView*)dropdownRow:(NSString*)title value:(NSString*)val {
+    UIView *row = [self baseRow];
+    UILabel *l = mkLabel(title, 13, RAVEN_SILVER, NO);
+    l.frame = CGRectMake(14, 0, 140, row.frame.size.height);
+    [row addSubview:l];
+
+    UIView *pill = [[UIView alloc] initWithFrame:CGRectMake(row.frame.size.width - 120, 8, 106, 28)];
+    pill.backgroundColor = [UIColor colorWithWhite:0.18 alpha:1.0];
+    pill.layer.cornerRadius = 6;
+    pill.layer.borderWidth = 1;
+    pill.layer.borderColor = [RAVEN_RED colorWithAlphaComponent:0.3].CGColor;
+    [row addSubview:pill];
+
+    UILabel *v = mkLabel(val, 12, RAVEN_SILVER, NO);
+    v.textAlignment = NSTextAlignmentCenter;
+    v.frame = pill.bounds;
+    [pill addSubview:v];
+    return row;
+}
+
+- (UIView*)buttonRow:(NSString*)title sel:(SEL)sel {
+    UIView *row = [self baseRow];
+    UIButton *b = [UIButton buttonWithType:UIButtonTypeCustom];
+    b.frame = row.bounds;
+    [b setTitle:title forState:UIControlStateNormal];
+    [b setTitleColor:RAVEN_SILVER forState:UIControlStateNormal];
+    b.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
+    [b addTarget:self action:sel forControlEvents:UIControlEventTouchUpInside];
+    [row addSubview:b];
+    return row;
+}
+
+- (UIView*)infoRow:(NSString*)title value:(NSString*)val {
+    UIView *row = [self baseRow];
+    UILabel *l = mkLabel(title, 13, RAVEN_SILVER, NO);
+    l.frame = CGRectMake(14, 0, 140, row.frame.size.height);
+    [row addSubview:l];
+    UILabel *v = mkLabel(val, 12, RAVEN_RED, YES);
+    v.textAlignment = NSTextAlignmentRight;
+    v.frame = CGRectMake(row.frame.size.width - 160, 0, 146, row.frame.size.height);
+    [row addSubview:v];
+    return row;
+}
+
+- (UIView*)listRow:(NSString*)text {
+    UIView *row = [self baseRow];
+    row.frame = CGRectMake(0, 0, 280, 36);
+    UILabel *l = mkLabel(text, 12, RAVEN_SILVER, NO);
+    l.frame = CGRectMake(14, 0, row.frame.size.width - 28, row.frame.size.height);
+    [row addSubview:l];
+    return row;
+}
+
+// ---------------- FOOTER ----------------
+- (void)buildFooter:(CGRect)r {
+    self.footerView = [[UIView alloc] initWithFrame:r];
+    self.footerView.backgroundColor = RAVEN_DARK;
+    self.footerView.layer.cornerRadius = 14;
+    self.footerView.layer.maskedCorners = kCALayerMinXMaxYCorner | kCALayerMaxXMaxYCorner;
+    self.footerView.layer.borderWidth = 1;
+    self.footerView.layer.borderColor = [RAVEN_RED colorWithAlphaComponent:0.3].CGColor;
+
+    UIView *dot = [[UIView alloc] initWithFrame:CGRectMake(12, 11, 8, 8)];
+    dot.backgroundColor = [UIColor colorWithRed:0.2 green:0.9 blue:0.3 alpha:1.0];
+    dot.layer.cornerRadius = 4;
+    [self.footerView addSubview:dot];
+
+    UILabel *l = mkLabel(@"Game: Connected    Status: Undetected    FPS: 120    Latency: 12ms",
+                         10, RAVEN_GREY, NO);
+    l.frame = CGRectMake(26, 0, r.size.width - 220, r.size.height);
+    [self.footerView addSubview:l];
+
+    UILabel *r2 = mkLabel(@"RAVEN  |  KREMCHEATS  |  v1.0.0", 10, RAVEN_RED, YES);
+    r2.textAlignment = NSTextAlignmentRight;
+    r2.frame = CGRectMake(r.size.width - 220, 0, 208, r.size.height);
+    [self.footerView addSubview:r2];
+}
+
+// ============================================================
+// ACTIONS
+// ============================================================
+- (void)onAimToggle:(UISwitch*)s    { self.aimOn = s.on; RavenAimbot::setEnabled(s.on); }
+- (void)onAimFov:(UISlider*)s       { RavenAimbot::setFov(s.value); }
+- (void)onAimSmooth:(UISlider*)s    { RavenAimbot::setSmooth(s.value); }
+- (void)onAimPred:(UISwitch*)s      { RavenAimbot::setPrediction(s.on); }
+- (void)onAimVis:(UISwitch*)s       { RavenAimbot::setVisCheck(s.on); }
+- (void)onAimSilent:(UISwitch*)s    { RavenAimbot::setSilent(s.on); }
+- (void)onEspToggle:(UISwitch*)s    { self.espOn = s.on; }
+- (void)onEngine:(UISwitch*)s       { self.engineOn = s.on; if (s.on) [[RavenESP shared] begin]; }
+- (void)onNoop:(UISwitch*)s         { (void)s; }
+- (void)onNoopSlider:(UISlider*)s   { (void)s; }
+- (void)onNoopTap:(UIButton*)b      { (void)b; }
 
 - (void)onTick {
     if (!self.engineOn) return;
@@ -761,4 +1133,4 @@ static UIImage* decodeB64(const char* b64) {
 @end
 """)
 
-print("done - Raven v1 written")
+print("done - Raven tabbed UI")
