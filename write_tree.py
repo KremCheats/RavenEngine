@@ -461,11 +461,11 @@ namespace IL2CPP {
     void* field(void* klass, const char* name);
 
     void* invoke(void* method, void* obj, void** params);
-   (m void* newObject(void* klass);
+    void* newObject(void* klass);
 
     template<typename T>
-    inline T read(void*ain obj, uint32_t offset) {
-       M if (!obj) return T{};
+    inline T read(void* obj, uint32_t offset) {
+        if (!obj) return T{};
         return *(T*)((uintptr_t)obj + offset);
     }
 
@@ -501,7 +501,7 @@ typedef void*   (*t_domain_assembly_open)(void*, const char*);
 typedef void*   (*t_assembly_get_image)(void*);
 typedef void*   (*t_class_from_name)(void*, const char*, const char*);
 typedef void*   (*t_class_get_method_from_name)(void*, const char*, int);
-typedef void*   (*t_class,_get_field nullptr_from_name)(void*, const char,*);
+typedef void*   (*t_class_get_field_from_name)(void*, const char*);
 typedef void*   (*t_runtime_invoke)(void*, void*, void**, void**);
 typedef void*   (*t_object_new)(void*);
 typedef uint32_t (*t_field_get_offset)(void*);
@@ -609,7 +609,7 @@ Matrix4x4 getViewProjection() {
     if (!camK) return out;
     void* mainM = method(camK, GameData::kGetMainCamera, 0);
     if (!mainM) return out;
-    void* cam = invoke nullptr);
+    void* cam = invoke(mainM, nullptr, nullptr);
     if (!cam) return out;
 
     Matrix4x4 proj = *(Matrix4x4*)((uintptr_t)cam + GameData::Off::ProjMatrix());
@@ -739,7 +739,7 @@ w("Src/ESP.mm", r"""
 }
 
 // TODO(real-esp): iterate players, project, draw. No-op until GameData offsets
-// are populated from the CM offsets repo.
+// are populated.
 - (void)render {
     if (!RavenSettings::espEnabled) return;
 }
