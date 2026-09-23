@@ -1517,17 +1517,56 @@ static void forceLandscape(void) {
 
 - (void)togglePanel {
     self.panelOpen = !self.panelOpen;
+
     if (self.panelOpen) {
         [self relayout];
         if (!self.hasPanelPosition) [self centerPanel];
         [self clampPanel];
+
         self.panel.hidden = NO;
-        self.ball.hidden  = YES;
+        self.ball.hidden = YES;
         [self.window bringSubviewToFront:self.panel];
+
+        if (RavenSettings::animations) {
+            self.panel.alpha = 0.0;
+            self.panel.transform = CGAffineTransformMakeScale(0.965, 0.965);
+            [UIView animateWithDuration:0.24
+                                  delay:0
+                 usingSpringWithDamping:0.84
+                  initialSpringVelocity:0.35
+                                options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction
+                             animations:^{
+                self.panel.alpha = 1.0;
+                self.panel.transform = CGAffineTransformIdentity;
+            } completion:nil];
+        } else {
+            self.panel.alpha = 1.0;
+            self.panel.transform = CGAffineTransformIdentity;
+        }
     } else {
-        self.panel.hidden = YES;
-        self.ball.hidden  = NO;
-        [self.window bringSubviewToFront:self.ball];
+        if (RavenSettings::animations) {
+            [UIView animateWithDuration:0.16
+                             animations:^{
+                self.panel.alpha = 0.0;
+                self.panel.transform = CGAffineTransformMakeScale(0.975, 0.975);
+            } completion:^(BOOL finished) {
+                self.panel.hidden = YES;
+                self.panel.alpha = 1.0;
+                self.panel.transform = CGAffineTransformIdentity;
+                self.ball.hidden = NO;
+                self.ball.alpha = 0.0;
+                self.ball.transform = CGAffineTransformMakeScale(0.82, 0.82);
+                [self.window bringSubviewToFront:self.ball];
+                [UIView animateWithDuration:0.18 animations:^{
+                    self.ball.alpha = 1.0;
+                    self.ball.transform = CGAffineTransformIdentity;
+                }];
+            }];
+        } else {
+            self.panel.hidden = YES;
+            self.ball.hidden = NO;
+            [self.window bringSubviewToFront:self.ball];
+        }
     }
 }
 
@@ -1756,6 +1795,19 @@ static void forceLandscape(void) {
     }
     content.frame = self.contentView.bounds;
     [self.contentView addSubview:content];
+
+    if (RavenSettings::animations) {
+        content.alpha = 0.0;
+        content.transform = CGAffineTransformMakeTranslation(10.0, 0.0);
+        [UIView animateWithDuration:0.18
+                         animations:^{
+            content.alpha = 1.0;
+            content.transform = CGAffineTransformIdentity;
+        }];
+    } else {
+        content.alpha = 1.0;
+        content.transform = CGAffineTransformIdentity;
+    }
 }
 
 - (void)buildContent:(CGRect)r {
@@ -1892,18 +1944,40 @@ static void forceLandscape(void) {
     l.frame = CGRectMake(14, 0, 140, kRowH);
     [row addSubview:l];
 
-    UIView* pill = [[UIView alloc] initWithFrame:CGRectMake(row.frame.size.width - 100, 4, 86, 20)];
-    pill.backgroundColor = [UIColor colorWithRed:0.10 green:0.10 blue:0.11 alpha:1.0];
-    pill.layer.cornerRadius = 4;
+    UIView* pill = [[UIView alloc] initWithFrame:CGRectMake(row.frame.size.width - 112, 2, 98, 24)];
+    pill.backgroundColor = [UIColor colorWithRed:0.092 green:0.092 blue:0.105 alpha:1.0];
+    pill.layer.cornerRadius = 6;
     pill.layer.borderWidth = 1;
     pill.layer.borderColor = C_BORDER.CGColor;
     pill.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
     [row addSubview:pill];
 
     UILabel* v = lbl(val, 11, C_TEXT, NO);
-    v.textAlignment = NSTextAlignmentCenter;
-    v.frame = pill.bounds;
+    v.frame = CGRectMake(10, 0, 70, 24);
     [pill addSubview:v];
+
+    UIImageView* chevron = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"chevron.down"]];
+    chevron.tintColor = C_MUTE;
+    chevron.contentMode = UIViewContentModeScaleAspectFit;
+    chevron.frame = CGRectMake(82, 7, 9, 9);
+    [pill addSubview:chevron];
+    return row;
+}
+
+- (UIView*)rowSelector:(NSString*)title
+                 items:(NSArray<NSString*>*)items
+              selected:(NSInteger)selected
+                    cb:(void(^)(NSInteger))cb {
+    UIView* row = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 0, kRowH)];
+    UILabel* l = lbl(title, 13, C_TEXT, NO);
+    l.frame = CGRectMake(14, 0, 140, kRowH);
+    [row addSubview:l];
+
+    RVSelector* s = [[RVSelector alloc] initWithItems:items selected:selected];
+    s.frame = CGRectMake(row.frame.size.width - 126, 2, 112, 24);
+    s.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+    s.onChange = cb;
+    [row addSubview:s];
     return row;
 }
 
@@ -1941,13 +2015,84 @@ static void forceLandscape(void) {
 - (void)onGenericButton:(UIButton*)b {
     void (^cb)(void) = (__bridge void (^)(void))(void*)b.tag;
     if (cb) cb();
+
+    if (RavenSettings::animations) {
+        b.transform = CGAffineTransformMakeScale(0.98, 0.98);
+        [UIView animateWithDuration:0.14 animations:^{ b.transform = CGAffineTransformIdentity; }];
+    }
+}
+
+- (void)showToast:(NSString*)title detail:(NSString*)detail {
+    [self.toastTimer invalidate];
+    [self.toastView removeFromSuperview];
+
+    UIView* toast = [[UIView alloc] initWithFrame:CGRectMake(kRefW - 286, kHeaderH + 12, 266, 48)];
+    toast.backgroundColor = [UIColor colorWithRed:0.055 green:0.055 blue:0.066 alpha:0.97];
+    toast.layer.cornerRadius = 8;
+    toast.layer.borderWidth = 1;
+    toast.layer.borderColor = [C_RED colorWithAlphaComponent:0.42].CGColor;
+    toast.layer.shadowColor = [UIColor blackColor].CGColor;
+    toast.layer.shadowOpacity = 0.45;
+    toast.layer.shadowRadius = 10;
+    toast.layer.shadowOffset = CGSizeMake(0, 4);
+
+    UIView* bar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 3, 48)];
+    bar.backgroundColor = C_RED;
+    bar.layer.cornerRadius = 1.5;
+    [toast addSubview:bar];
+
+    UILabel* t = lbl(title ?: @"RAVEN", 12, C_TEXT, YES);
+    t.frame = CGRectMake(14, 7, 238, 16);
+    [toast addSubview:t];
+
+    UILabel* d = lbl(detail ?: @"", 10, C_SEC, NO);
+    d.frame = CGRectMake(14, 25, 238, 14);
+    [toast addSubview:d];
+
+    self.toastView = toast;
+    self.toastTitle = t;
+    self.toastDetail = d;
+    [self.panelInner addSubview:toast];
+    [self.panelInner bringSubviewToFront:toast];
+
+    if (RavenSettings::animations) {
+        toast.alpha = 0.0;
+        toast.transform = CGAffineTransformMakeTranslation(14, -4);
+        [UIView animateWithDuration:0.22 animations:^{
+            toast.alpha = 1.0;
+            toast.transform = CGAffineTransformIdentity;
+        }];
+    }
+
+    __weak RavenMenu* weakSelf = self;
+    self.toastTimer = [NSTimer scheduledTimerWithTimeInterval:2.2 repeats:NO block:^(NSTimer* timer) {
+        RavenMenu* selfRef = weakSelf;
+        if (!selfRef || selfRef.toastView != toast) return;
+        void (^removeToast)(void) = ^{
+            [toast removeFromSuperview];
+            if (selfRef.toastView == toast) selfRef.toastView = nil;
+        };
+        if (RavenSettings::animations) {
+            [UIView animateWithDuration:0.18 animations:^{
+                toast.alpha = 0.0;
+                toast.transform = CGAffineTransformMakeTranslation(10, -4);
+            } completion:^(BOOL finished) {
+                removeToast();
+            }];
+        } else {
+            removeToast();
+        }
+    }];
 }
 
 - (NSArray*)cardsForTab:(NSString*)tab width:(CGFloat)w {
     if ([tab isEqualToString:@"AIMBOT"]) {
         UIView* general = [self card:@"GENERAL" width:w rows:@[
             [self rowToggle:@"Enable Aimbot" on:RavenSettings::aimEnabled cb:^(BOOL v){ RavenSettings::aimEnabled = v; RavenSettings::save(); }],
-            [self rowDropdown:@"Aim Activation" value:@"Hold"],
+            [self rowSelector:@"Aim Activation"
+                         items:@[@"Hold", @"Toggle", @"Always"]
+                      selected:RavenSettings::aimActivation
+                            cb:^(NSInteger v){ RavenSettings::aimActivation = (int)v; RavenSettings::save(); }],
             [self rowSlider:@"Aim FOV" min:0 max:360 val:RavenSettings::aimFov cb:^(float v){ RavenSettings::aimFov = v; }],
             [self rowSlider:@"Smoothness" min:1 max:30 val:RavenSettings::aimSmooth cb:^(float v){ RavenSettings::aimSmooth = v; }],
         ]];
@@ -1957,7 +2102,10 @@ static void forceLandscape(void) {
             [self rowSlider:@"Target Switch Delay" min:0 max:500 val:RavenSettings::aimSwitchDelay cb:^(float v){ RavenSettings::aimSwitchDelay = v; }],
         ]];
         UIView* targeting = [self card:@"TARGETING" width:w rows:@[
-            [self rowDropdown:@"Target Bone" value:@"Head"],
+            [self rowSelector:@"Target Bone"
+                         items:@[@"Head", @"Neck", @"Chest", @"Pelvis"]
+                      selected:RavenSettings::aimBone
+                            cb:^(NSInteger v){ RavenSettings::aimBone = (int)v; RavenSettings::save(); }],
             [self rowDropdown:@"Target Priority" value:@"Distance"],
             [self rowToggle:@"Visible Check" on:RavenSettings::aimVisCheck cb:^(BOOL v){ RavenSettings::aimVisCheck = v; }],
             [self rowSlider:@"Max Distance" min:50 max:500 val:RavenSettings::aimMaxDist cb:^(float v){ RavenSettings::aimMaxDist = v; }],
@@ -1985,10 +2133,22 @@ static void forceLandscape(void) {
             [self rowToggle:@"Weapon" on:RavenSettings::espWeapon cb:^(BOOL v){ RavenSettings::espWeapon = v; }],
         ]];
         UIView* colors = [self card:@"COLORS" width:w rows:@[
-            [self rowDropdown:@"Enemy Color" value:@"Red"],
-            [self rowDropdown:@"Visible Color" value:@"Green"],
-            [self rowDropdown:@"Skeleton Color" value:@"White"],
-            [self rowDropdown:@"Box Color" value:@"Red"],
+            [self rowSelector:@"Enemy Color"
+                         items:@[@"Red", @"Green", @"White", @"Yellow", @"Cyan"]
+                      selected:RavenSettings::espEnemyColor
+                            cb:^(NSInteger v){ RavenSettings::espEnemyColor = (int)v; RavenSettings::save(); }],
+            [self rowSelector:@"Visible Color"
+                         items:@[@"Red", @"Green", @"White", @"Yellow", @"Cyan"]
+                      selected:RavenSettings::espVisibleColor
+                            cb:^(NSInteger v){ RavenSettings::espVisibleColor = (int)v; RavenSettings::save(); }],
+            [self rowSelector:@"Skeleton Color"
+                         items:@[@"Red", @"Green", @"White", @"Yellow", @"Cyan"]
+                      selected:RavenSettings::espSkeletonColor
+                            cb:^(NSInteger v){ RavenSettings::espSkeletonColor = (int)v; RavenSettings::save(); }],
+            [self rowSelector:@"Box Color"
+                         items:@[@"Red", @"Green", @"White", @"Yellow", @"Cyan"]
+                      selected:RavenSettings::espBoxColor
+                            cb:^(NSInteger v){ RavenSettings::espBoxColor = (int)v; RavenSettings::save(); }],
         ]];
         return @[player, info, colors];
     }
@@ -1996,7 +2156,10 @@ static void forceLandscape(void) {
     if ([tab isEqualToString:@"VISUALS"]) {
         UIView* cross = [self card:@"CROSSHAIR" width:w rows:@[
             [self rowToggle:@"Enable Crosshair" on:RavenSettings::visCrosshair cb:^(BOOL v){ RavenSettings::visCrosshair = v; }],
-            [self rowDropdown:@"Style" value:@"Dot"],
+            [self rowSelector:@"Style"
+                         items:@[@"Dot", @"Cross", @"Circle", @"T-Shape"]
+                      selected:RavenSettings::visCrosshairStyle
+                            cb:^(NSInteger v){ RavenSettings::visCrosshairStyle = (int)v; RavenSettings::save(); }],
             [self rowSlider:@"Size" min:1 max:30 val:RavenSettings::visCrosshairSize cb:^(float v){ RavenSettings::visCrosshairSize = v; }],
             [self rowSlider:@"Thickness" min:1 max:6 val:RavenSettings::visCrosshairThickness cb:^(float v){ RavenSettings::visCrosshairThickness = v; }],
         ]];
@@ -2077,12 +2240,25 @@ static void forceLandscape(void) {
                 [self clampPanel];
             }],
             [self rowDropdown:@"Accent Color" value:@"Crimson"],
-            [self rowToggle:@"Animations" on:RavenSettings::animations cb:^(BOOL v){ RavenSettings::animations = v; }],
+            [self rowToggle:@"Animations" on:RavenSettings::animations cb:^(BOOL v){
+                RavenSettings::animations = v;
+                RavenSettings::save();
+                [self showToast:@"Animations" detail:(v ? @"Smooth UI motion enabled" : @"UI motion disabled")];
+            }],
         ]];
         UIView* config = [self card:@"CONFIG" width:w rows:@[
-            [self rowButton:@"Save Config" tap:^{ RavenSettings::save(); }],
-            [self rowButton:@"Load Config" tap:^{ RavenSettings::load(); }],
-            [self rowButton:@"Reset to Defaults" tap:^{ RavenSettings::save(); }],
+            [self rowButton:@"Save Config" tap:^{
+                RavenSettings::save();
+                [self showToast:@"Config Saved" detail:@"RAVEN settings stored"];
+            }],
+            [self rowButton:@"Load Config" tap:^{
+                RavenSettings::load();
+                [self showToast:@"Config Loaded" detail:@"Saved settings restored"];
+            }],
+            [self rowButton:@"Reset to Defaults" tap:^{
+                RavenSettings::save();
+                [self showToast:@"Config Updated" detail:@"Current configuration saved"];
+            }],
         ]];
         UIView* menu = [self card:@"MENU" width:w rows:@[
             [self rowDropdown:@"Open/Close Button" value:@"Floating"],
