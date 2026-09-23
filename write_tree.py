@@ -14,33 +14,12 @@ ARCHS = arm64
 include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = Raven
-Raven_FILES = Raven.mm Src/IL2CPP.mm Src/ESP.mm Src/Aimbot.mm Src/Menu.mm
+Raven_FILES = Raven.mm Src/IL2CPP.mm Src/ESP.mm Src/Aimbot.mm Src/Menu.mm Src/Updater.mm
 Raven_CFLAGS = -fobjc-arc -I./Src -std=c++17 -Wno-unused-function -Wno-deprecated-declarations
 Raven_CCFLAGS = -fobjc-arc -I./Src -std=c++17
 Raven_FRAMEWORKS = UIKit Foundation QuartzCore CoreGraphics
 
 include $(THEOS_MAKE_PATH)/tweak.mk
-""")
-
-w("Raven.mm", r"""
-#import <Foundation/Foundation.h>
-#import <UIKit/UIKit.h>
-#import <dispatch/dispatch.h>
-#import "Src/Common.h"
-#import "Src/IL2CPP.h"
-#import "Src/Menu.h"
-
-__attribute__((constructor))
-static void raven_entry(void) {
-    @autoreleasepool {
-        RAVEN_LOG("entry");
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(4 * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{
-            IL2CPP::init();
-            [[RavenMenu shared] start];
-        });
-    }
-}
 """)
 
 w("Src/Common.h", r"""
@@ -54,6 +33,8 @@ w("Src/Common.h", r"""
 #import <os/log.h>
 
 #define RAVEN_LOG(fmt, ...) os_log(OS_LOG_DEFAULT, "[raven] " fmt, ##__VA_ARGS__)
+
+#define RAVEN_LOCAL_VERSION "1.0.0"
 
 struct Vec3 { float x, y, z; };
 struct Matrix4x4 { float m[16]; };
@@ -69,11 +50,180 @@ struct Matrix4x4 { float m[16]; };
 #endif
 """)
 
+w("Src/Updater.h", r"""
+#ifndef RAVEN_UPDATER_H
+#define RAVEN_UPDATER_H
+
+#include <cstdint>
+#include <string>
+#include <map>
+
+namespace Updater {
+    // Fetches config.json from GitHub and caches it. Safe to call on background
+    // queue at launch. Subsequent calls return cached values.
+    void fetchAsync(const char* url);
+
+    // Synchronous getters — call only after fetchAsync has completed at least once
+    // (or with fallback values).
+    std::string remoteVersion();
+    bool hasUpdate();           // true if remote version differs from RAVEN_LOCAL_VERSION
+    std::string updateMessage();
+
+    uint32_t offset(const std::string& key, uint32_t fallback);
+    bool feature(const std::string& key, bool fallback);
+    std::string asset(const std::string& key, const std::string& fallback);
+
+    // Diagnostics
+    const char* status();
+}
+
+#endif
+""")
+
+w("Src/Updater.mm", r"""
+#import "Updater.h"
+#import "Common.h"
+#import <Foundation/Foundation.h>
+
+namespace Updater {
+
+static std::map<std::string,uint32_t> g_offsets;
+static std::map<std::string,bool>     g_features;
+static std::map<std::string,std::string> g_assets;
+static std::string g_version    = RAVEN_LOCAL_VERSION;
+static std::string g_minDylib   = RAVEN_LOCAL_VERSION;
+static std::string g_message;
+static bool g_fetched           = false;
+static char g_status[160]       = "not fetched";
+
+static uint32_t parseHex(const std::string& s) {
+    if (s.empty()) return 0;
+    return (uint32_t)strtoul(s.c_str(), nullptr, 16);
+}
+
+static std::string toStd(NSString* s) {
+    if (!s) return std::string();
+    return std::string([s UTF8String] ?: "");
+}
+
+static std::string cacheDir() {
+    NSString* d = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES) firstObject];
+    return toStd(d);
+}
+
+static std::string cachePath() {
+    return cacheDir() + "/raven_config.json";
+}
+
+static bool parseConfig(NSData* data) {
+    if (!data) return false;
+    NSError* err = nil;
+    id root = [NSJSONSerialization JSONObjectWithData:data options:0 error:&err];
+    if (!root || ![root isKindOfClass:[NSDictionary class]]) return false;
+
+    NSDictionary* d = (NSDictionary*)root;
+
+    if (d[@"version"])         g_version  = toStd(d[@"version"]);
+    if (d[@"min_dylib_version"]) g_minDylib = toStd(d[@"min_dylib_version"]);
+    if (d[@"message"])         g_message  = toStd(d[@"message"]);
+
+    g_offsets.clear();
+    NSDictionary* offs = d[@"offsets"];
+    if ([offs isKindOfClass:[NSDictionary class]]) {
+        for (NSString* k in offs) {
+            g_offsets[toStd(k)] = parseHex(toStd(offs[k]));
+        }
+    }
+
+    g_features.clear();
+    NSDictionary* feats = d[@"features"];
+    if ([feats isKindOfClass:[NSDictionary class]]) {
+        for (NSString* k in feats) {
+            g_features[toStd(k)] = [feats[k] boolValue];
+        }
+    }
+
+    g_assets.clear();
+    NSDictionary* assets = d[@"assets"];
+    if ([assets isKindOfClass:[NSDictionary class]]) {
+        for (NSString* k in assets) {
+            g_assets[toStd(k)] = toStd(assets[k]);
+        }
+    }
+
+    g_fetched = true;
+    snprintf(g_status, sizeof(g_status), "config v%s (%zu offs)",
+             g_version.c_str(), g_offsets.size());
+    return true;
+}
+
+void fetchAsync(const char* url) {
+    if (g_fetched) return;
+
+    // 1. try disk cache first (instant, offline-safe)
+    NSData* cached = [NSData dataWithContentsOfFile:
+                      [NSString stringWithUTF8String:cachePath().c_str()]];
+    if (cached && parseConfig(cached)) {
+        RAVEN_LOG("config loaded from cache");
+        // still refresh in background, but don't block
+    }
+
+    // 2. fetch from network on background queue
+    NSString* urlStr = [NSString stringWithUTF8String:url];
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        NSURL* u = [NSURL URLWithString:urlStr];
+        if (!u) return;
+        NSData* fresh = [NSData dataWithContentsOfURL:u];
+        if (!fresh) {
+            RAVEN_LOG("config fetch failed");
+            return;
+        }
+        if (parseConfig(fresh)) {
+            [fresh writeToFile:[NSString stringWithUTF8String:cachePath().c_str()]
+                    atomically:YES];
+            RAVEN_LOG("config refreshed: %s", g_status);
+        }
+    });
+}
+
+std::string remoteVersion() { return g_version; }
+
+bool hasUpdate() {
+    if (!g_fetched) return false;
+    return g_version != std::string(RAVEN_LOCAL_VERSION);
+}
+
+std::string updateMessage() { return g_message; }
+
+uint32_t offset(const std::string& key, uint32_t fallback) {
+    auto it = g_offsets.find(key);
+    if (it == g_offsets.end()) return fallback;
+    return it->second;
+}
+
+bool feature(const std::string& key, bool fallback) {
+    auto it = g_features.find(key);
+    if (it == g_features.end()) return fallback;
+    return it->second;
+}
+
+std::string asset(const std::string& key, const std::string& fallback) {
+    auto it = g_assets.find(key);
+    if (it == g_assets.end()) return fallback;
+    return it->second;
+}
+
+const char* status() { return g_status; }
+
+}
+""")
+
 w("Src/GameData.h", r"""
 #ifndef RAVEN_GAMEDATA_H
 #define RAVEN_GAMEDATA_H
 
 #include <cstdint>
+#include "Updater.h"
 
 namespace GameData {
     static const char* kLocalPlayerClass = "PlayerRoot";
@@ -96,20 +246,22 @@ namespace GameData {
 
     static const char* kFldPlayerList   = "AllPlayers";
 
+    // Offsets are read at call-time so a config update applies without a rebuild.
+    // Each getter falls back to the compiled default if the key is missing.
     namespace Off {
-        constexpr uint32_t Health      = 0x0;
-        constexpr uint32_t Armor       = 0x0;
-        constexpr uint32_t Position    = 0x0;
-        constexpr uint32_t TeamId      = 0x0;
-        constexpr uint32_t IsVisible   = 0x0;
-        constexpr uint32_t IsLocal     = 0x0;
+        inline uint32_t Health()     { return Updater::offset("Health", 0x0); }
+        inline uint32_t Armor()      { return Updater::offset("Armor", 0x0); }
+        inline uint32_t Position()   { return Updater::offset("Position", 0x0); }
+        inline uint32_t TeamId()     { return Updater::offset("TeamId", 0x0); }
+        inline uint32_t IsVisible()  { return Updater::offset("IsVisible", 0x0); }
+        inline uint32_t IsLocal()    { return Updater::offset("IsLocal", 0x0); }
 
-        constexpr uint32_t ListCount   = 0x18;
-        constexpr uint32_t ListItems   = 0x10;
-        constexpr uint32_t ArrayData   = 0x20;
+        inline uint32_t ListCount()  { return Updater::offset("ListCount", 0x18); }
+        inline uint32_t ListItems()  { return Updater::offset("ListItems", 0x10); }
+        inline uint32_t ArrayData()  { return Updater::offset("ArrayData", 0x20); }
 
-        constexpr uint32_t ViewMatrix  = 0x0;
-        constexpr uint32_t ProjMatrix  = 0x0;
+        inline uint32_t ViewMatrix() { return Updater::offset("ViewMatrix", 0x0); }
+        inline uint32_t ProjMatrix() { return Updater::offset("ProjMatrix", 0x0); }
     }
 
     namespace Bone {
@@ -127,9 +279,12 @@ w("Src/Logos.h", r"""
 #ifndef RAVEN_LOGOS_H
 #define RAVEN_LOGOS_H
 
-static const char* kBallLogoURL   = "https://i.imgur.com/MQG4stU.png";
-static const char* kHeaderLogoURL = "https://i.imgur.com/Cnzjdjh.png";
-static const char* kSidebarArtURL = "https://i.imgur.com/80o5CRE.png";
+// Defaults. Can be overridden at runtime by config.json "assets" section.
+static const char* kBallLogoURLDefault   = "https://i.imgur.com/MQG4stU.png";
+static const char* kHeaderLogoURLDefault = "https://i.imgur.com/Cnzjdjh.png";
+static const char* kSidebarArtURLDefault = "https://i.imgur.com/80o5CRE.png";
+
+static const char* kConfigURL = "https://raw.githubusercontent.com/KremCheats/RuntimeSupport/main/config.json";
 
 #endif
 """)
@@ -244,10 +399,7 @@ bool init() {
         return false;
     }
     g_domain = p_domain_get();
-    if (!g_domain) {
-        snprintf(g_status, sizeof(g_status), "null domain");
-        return false;
-    }
+    if (!g_domain) { snprintf(g_status, sizeof(g_status), "null domain"); return false; }
     if (p_thread_attach) p_thread_attach(g_domain);
     snprintf(g_status, sizeof(g_status), "il2cpp ok");
     return true;
@@ -308,8 +460,8 @@ Matrix4x4 getViewProjection() {
     void* cam = invoke(mainM, nullptr, nullptr);
     if (!cam) return out;
 
-    Matrix4x4 proj = *(Matrix4x4*)((uintptr_t)cam + GameData::Off::ProjMatrix);
-    Matrix4x4 view = *(Matrix4x4*)((uintptr_t)cam + GameData::Off::ViewMatrix);
+    Matrix4x4 proj = *(Matrix4x4*)((uintptr_t)cam + GameData::Off::ProjMatrix());
+    Matrix4x4 view = *(Matrix4x4*)((uintptr_t)cam + GameData::Off::ViewMatrix());
 
     for (int r = 0; r < 4; r++) {
         for (int c = 0; c < 4; c++) {
@@ -395,7 +547,7 @@ w("Src/ESP.mm", r"""
     self.labels.alignmentMode = kCAAlignmentLeft;
 
     [self.window.layer addSublayer:self.boxes];
-    [self.window.layer addSublayer:self.lines];
+    l [self.window.layer addSublayer:self.lines];
     [self.window.layer addSublayer:self.labels];
 }
 
@@ -413,13 +565,8 @@ w("Src/ESP.mm", r"""
     }
 }
 
-- (void)begin {
-    self.boxes.path = NULL;
-    self.lines.path = NULL;
-}
-
+- (void)begin { self.boxes.path = NULL; self.lines.path = NULL; }
 - (void)end {}
-
 - (void)drawBox:(CGRect)r color:(UIColor*)c {
     UIBezierPath *p = [UIBezierPath bezierPathWithRect:r];
     CGMutablePathRef cur = CGPathCreateMutableCopy(self.boxes.path ?: CGPathCreateMutable());
@@ -428,7 +575,6 @@ w("Src/ESP.mm", r"""
     CGPathRelease(cur);
     self.boxes.strokeColor = c.CGColor;
 }
-
 - (void)drawLine:(CGPoint)a to:(CGPoint)b color:(UIColor*)c {
     CGMutablePathRef cur = CGPathCreateMutableCopy(self.lines.path ?: CGPathCreateMutable());
     CGPathMoveToPoint(cur, NULL, a.x, a.y);
@@ -437,13 +583,8 @@ w("Src/ESP.mm", r"""
     CGPathRelease(cur);
     self.lines.strokeColor = c.CGColor;
 }
-
-- (void)drawText:(NSString*)s at:(CGPoint)p color:(UIColor*)c {
-}
-
-- (void)render {
-}
-
+- (void)drawText:(NSString*)s at:(CGPoint)p color:(UIColor*)c {}
+- (void)render {}
 @end
 """)
 
@@ -472,7 +613,6 @@ w("Src/Aimbot.mm", r"""
 #import "IL2CPP.h"
 
 namespace RavenAimbot {
-
 static bool  g_on        = false;
 static int   g_bone      = GameData::Bone::Head;
 static float g_smooth    = 5.0f;
@@ -490,23 +630,20 @@ void setKey(int k)       { g_key = k; }
 void setSilent(bool on)  { g_silent = on; }
 void setVisCheck(bool on){ g_vis = on; }
 void setPrediction(bool on){ g_pred = on; }
-
-void tick() {
-    if (!g_on) return;
-}
+void tick() { if (!g_on) return; }
 }
 """)
 
 w("Src/Menu.h", r"""
 #ifndef RAVEN_MENU_H
 #define RAVEN_MENU_H
-#import <UIKit/UIKit.h>
-#import <QuartzCore/QuartzCore.h>
+#import <.textUIKit/UIKit.h>
+#import <QuartzCore/AlignmentQuartzCore.h>
 
 @interface RavenMenu : NSObject
 + (instancetype)shared;
-- (void)start;
-- (void)setVisible:(BOOL)v;
+ =- (void)start N;
+- (void)setVisible:(BOOL)STv;
 @end
 #endif
 """)
@@ -518,10 +655,8 @@ w("Src/Menu.mm", r"""
 #import "ESP.h"
 #import "Aimbot.h"
 #import "IL2CPP.h"
+#import "Updater.h"
 
-// ==================================================================
-// image loading — URL based, with memory + disk cache
-// ==================================================================
 static NSCache* g_imgCache = nil;
 
 static UIImage* loadLogoURL(const char* url) {
@@ -550,6 +685,11 @@ static UIImage* loadLogoURL(const char* url) {
     return img;
 }
 
+static NSString* assetURL(const char* key, const char* fallback) {
+    std::string s = Updater::asset(std::string(key), std::string(fallback ? fallback : ""));
+    return [NSString stringWithUTF8String:s.c_str()];
+}
+
 static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold) {
     UILabel* l = [UILabel new];
     l.text = text;
@@ -560,7 +700,6 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
     return l;
 }
 
-// ==================================================================
 @interface RavenMenu ()
 @property (nonatomic, strong) UIWindow *window;
 @property (nonatomic, strong) UIView   *panel;
@@ -577,7 +716,6 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
 @property (nonatomic, assign) BOOL engineOn;
 @property (nonatomic, assign) BOOL aimOn;
 @property (nonatomic, assign) BOOL espOn;
-@property (nonatomic, assign) BOOL visOn;
 @end
 
 @implementation RavenMenu
@@ -616,7 +754,6 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
                                                     selector:@selector(onTick)
                                                     userInfo:nil
                                                      repeats:YES];
-
     RAVEN_LOG("menu started");
 }
 
@@ -649,7 +786,8 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
     self.ball.layer.shadowOffset = CGSizeZero;
     self.ball.userInteractionEnabled = YES;
 
-    UIImage *ballLogo = loadLogoURL(kBallLogoURL);
+    NSString* u = assetURL("ball", kBallLogoURLDefault);
+    UIImage *ballLogo = loadLogoURL([u UTF8String]);
     if (ballLogo) {
         UIImageView *iv = [[UIImageView alloc] initWithFrame:self.ball.bounds];
         iv.image = ballLogo;
@@ -659,10 +797,8 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
         [self.ball addSubview:iv];
     } else {
         UILabel *l = [[UILabel alloc] initWithFrame:self.ball.bounds];
-        l.text = @"R";
-        l.textAlignment = NSTextAlignmentCenter;
-        l.font = [UIFont boldSystemFontOfSize:26];
-        l.textColor = RAVEN_RED;
+        l.text = @"R";extAlignmentCenter;
+        l.font = [UIFont boldSystemFontOfSize:26]; l.textColor = RAVEN_RED;
         [self.ball addSubview:l];
     }
 
@@ -672,11 +808,7 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
     [self.ball addGestureRecognizer:pan];
 }
 
-- (void)togglePanel {
-    self.panelOpen = !self.panelOpen;
-    self.panel.hidden = !self.panelOpen;
-}
-
+- (void)togglePanel { self.panelOpen = !self.panelOpen; self.panel.hidden = !self.panelOpen; }
 - (void)dragBall:(UIPanGestureRecognizer*)g {
     CGPoint t = [g translationInView:self.window];
     self.ball.center = CGPointMake(self.ball.center.x + t.x, self.ball.center.y + t.y);
@@ -724,7 +856,8 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
     self.headerView.layer.borderWidth = 1;
     self.headerView.layer.borderColor = [RAVEN_RED colorWithAlphaComponent:0.4].CGColor;
 
-    UIImage *logo = loadLogoURL(kHeaderLogoURL);
+    NSString* u = assetURL("header", kHeaderLogoURLDefault);
+    UIImage *logo = loadLogoURL([u UTF8String]);
     if (logo) {
         UIImageView *iv = [[UIImageView alloc] initWithFrame:CGRectMake(6, 6, r.size.width - 12, r.size.height - 12)];
         iv.image = logo;
@@ -734,12 +867,8 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
         UILabel *title = mkLabel(@"RAVEN", 30, RAVEN_RED, YES);
         title.frame = CGRectMake(16, 8, 200, 36);
         [self.headerView addSubview:title];
-        UILabel *byline = mkLabel(@"BY KREMCHEATS   DEV: KREMIT YSS", 9, RAVEN_SILVER, NO);
-        byline.frame = CGRectMake(18, 44, 200, 14);
-        [self.headerView addSubview:byline];
     }
 
-    // close button (always overlays logo)
     UIButton *close = [UIButton buttonWithType:UIButtonTypeSystem];
     close.frame = CGRectMake(r.size.width - 42, 6, 36, 30);
     [close setTitle:@"X" forState:UIControlStateNormal];
@@ -753,13 +882,13 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
 
 - (NSArray*)tabDefs {
     return @[
-        @{@"title":@"AIMBOT",   @"icon":@"scope"},
-        @{@"title":@"ESP",      @"icon":@"eye.fill"},
-        @{@"title":@"VISUALS",  @"icon":@"sparkles.tv.fill"},
-        @{@"title":@"MISC",     @"icon":@"gearshape.2.fill"},
-        @{@"title":@"PLAYERS",  @"icon":@"person.2.fill"},
-        @{@"title":@"CONFIG",   @"icon":@"doc.text.fill"},
-        @{@"title":@"SETTINGS", @"icon":@"gear"},
+        @{@"title":@"AIMBOT",   @"icon":@"scope",            @"key":@"aimbot"},
+        @{@"title":@"ESP",      @"icon":@"eye.fill",         @"key":@"esp"},
+        @{@"title":@"VISUALS",  @"icon":@"sparkles.tv.fill", @"key":@"visuals"},
+        @{@"title":@"MISC",     @"icon":@"gearshape.2.fill", @"key":@"misc"},
+        @{@"title":@"PLAYERS",  @"icon":@"person.2.fill",    @"key":@"players"},
+        @{@"title":@"CONFIG",   @"icon":@"doc.text.fill",    @"key":@"config"},
+        @{@"title":@"SETTINGS", @"icon":@"gear",             @"key":@"settings"},
     ];
 }
 
@@ -768,8 +897,8 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
     self.sidebarView.backgroundColor = [RAVEN_DARK colorWithAlphaComponent:0.5];
     self.sidebarView.clipsToBounds = YES;
 
-    // art first (behind everything)
-    UIImage *art = loadLogoURL(kSidebarArtURL);
+    NSString* su = assetURL("sidebar", kSidebarArtURLDefault);
+    UIImage *art = loadLogoURL([su UTF8String]);
     if (art) {
         UIImageView *iv = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, r.size.width, r.size.height)];
         iv.image = art;
@@ -785,6 +914,10 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
 
     for (NSInteger i = 0; i < defs.count; i++) {
         NSDictionary *d = defs[i];
+        // hide tabs disabled by remote config
+        std::string k = std::string([d[@"key"] UTF8String]);
+        if (!Updater::feature(k, true)) continue;
+
         UIButton *btn = [UIButton buttonWithType:UIButtonTypeCustom];
         btn.frame = CGRectMake(8, y, r.size.width - 16, h);
         btn.tag = i;
@@ -817,19 +950,18 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
     [self.sidebarView addSubview:motto];
 }
 
-- (void)onTabTap:(UIButton*)b {
-    [self selectTab:b.tag];
-}
+- (void)onTabTap:(UIButton*)b { [self selectTab:b.tag]; }
 
 - (void)selectTab:(NSInteger)idx {
     self.activeTab = idx;
     for (NSInteger i = 0; i < self.tabButtons.count; i++) {
         UIButton *b = self.tabButtons[i];
-        b.backgroundColor = (i == idx) ? [RAVEN_RED colorWithAlphaComponent:0.18] : [UIColor clearColor];
+        b.backgroundColor = (b.tag == idx) ? [RAVEN_RED colorWithAlphaComponent:0.18] : [UIColor clearColor];
     }
     for (UIView *v in self.contentView.subviews) [v removeFromSuperview];
 
     NSArray *defs = [self tabDefs];
+    if (idx < 0 || idx >= (NSInteger)defs.count) return;
     NSString *key = defs[idx][@"title"];
     UIView *content = self.tabViews[key];
     if (!content) {
@@ -875,7 +1007,6 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
             [self dropdownRow:@"Target Bone" value:@"Head"],
             [self switchRow:@"Prediction" sel:@selector(onAimPred:) on:YES],
             [self switchRow:@"Visibility Check" sel:@selector(onAimVis:) on:YES],
-            [self switchRow:@"Ignore Knocked" sel:@selector(onNoop:) on:NO],
             [self switchRow:@"Silent Aim" sel:@selector(onAimSilent:) on:NO],
         ];
     }
@@ -887,7 +1018,6 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
             [self switchRow:@"Player Names" sel:@selector(onNoop:) on:YES],
             [self switchRow:@"Distance" sel:@selector(onNoop:) on:YES],
             [self switchRow:@"Health Bar" sel:@selector(onNoop:) on:YES],
-            [self switchRow:@"Weapon ESP" sel:@selector(onNoop:) on:NO],
             [self switchRow:@"Snaplines" sel:@selector(onNoop:) on:NO],
             [self switchRow:@"Visible Only" sel:@selector(onNoop:) on:YES],
         ];
@@ -898,7 +1028,6 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
             [self switchRow:@"No Spread" sel:@selector(onNoop:) on:YES],
             [self sliderRow:@"FOV Changer" min:60 max:140 val:110 sel:@selector(onNoopSlider:)],
             [self switchRow:@"Remove Fog" sel:@selector(onNoop:) on:YES],
-            [self switchRow:@"Better Textures" sel:@selector(onNoop:) on:YES],
             [self switchRow:@"Night Mode" sel:@selector(onNoop:) on:YES],
             [self dropdownRow:@"Crosshair" value:@"Dot"],
             [self sliderRow:@"Brightness" min:0 max:200 val:100 sel:@selector(onNoopSlider:)],
@@ -912,7 +1041,6 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
             [self switchRow:@"No Flash" sel:@selector(onNoop:) on:YES],
             [self switchRow:@"No Smoke" sel:@selector(onNoop:) on:YES],
             [self switchRow:@"Fast Reload" sel:@selector(onNoop:) on:YES],
-            [self switchRow:@"Unlock All" sel:@selector(onNoop:) on:NO],
         ];
     }
     if ([tab isEqualToString:@"PLAYERS"]) {
@@ -931,13 +1059,17 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
         ];
     }
     if ([tab isEqualToString:@"SETTINGS"]) {
-        return @[
-            [self infoRow:@"Version" value:@"1.0.0"],
-            [self infoRow:@"Developer" value:@"Kremityss"],
-            [self infoRow:@"Brand" value:@"KREMCHEATS"],
-            [self switchRow:@"Stream Proof" sel:@selector(onNoop:) on:NO],
-            [self switchRow:@"Panic Key" sel:@selector(onNoop:) on:YES],
-        ];
+        // show remote version if different
+        std::string rv = Updater::remoteVersion();
+        NSString* rvStr = [NSString stringWithUTF8String:rv.c_str()];
+        NSMutableArray *arr = [NSMutableArray array];
+        [arr addObject:[self infoRow:@"Version" value:rvStr]];
+        [arr addObject:[self infoRow:@"Developer" value:@"Kremityss"]];
+        [arr addObject:[self infoRow:@"Brand" value:@"KREMCHEATS"]];
+        [arr addObject:[self infoRow:@"Status" value:[NSString stringWithUTF8String:Updater::status()]]];
+        [arr addObject:[self switchRow:@"Stream Proof" sel:@selector(onNoop:) on:NO]];
+        [arr addObject:[self switchRow:@"Panic Key" sel:@selector(onNoop:) on:YES]];
+        return arr;
     }
     return @[];
 }
@@ -950,13 +1082,11 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
     row.layer.borderColor = [RAVEN_RED colorWithAlphaComponent:0.18].CGColor;
     return row;
 }
-
 - (UIView*)switchRow:(NSString*)title sel:(SEL)sel on:(BOOL)on {
     UIView *row = [self baseRow];
     UILabel *l = mkLabel(title, 13, RAVEN_SILVER, NO);
     l.frame = CGRectMake(14, 0, row.frame.size.width - 90, row.frame.size.height);
     [row addSubview:l];
-
     UISwitch *sw = [[UISwitch alloc] init];
     sw.onTintColor = RAVEN_RED;
     sw.on = on;
@@ -966,25 +1096,19 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
     [row addSubview:sw];
     return row;
 }
-
 - (UIView*)sliderRow:(NSString*)title min:(float)mn max:(float)mx val:(float)v sel:(SEL)sel {
     UIView *row = [self baseRow];
     row.frame = CGRectMake(0, 0, 280, 54);
-
     UILabel *l = mkLabel(title, 13, RAVEN_SILVER, NO);
     l.frame = CGRectMake(14, 4, 160, 20);
     [row addSubview:l];
-
     UILabel *val = mkLabel([NSString stringWithFormat:@"%.0f", v], 12, RAVEN_RED, YES);
     val.textAlignment = NSTextAlignmentRight;
     val.frame = CGRectMake(row.frame.size.width - 60, 4, 46, 20);
     [row addSubview:val];
-
     UISlider *sl = [[UISlider alloc] init];
     sl.frame = CGRectMake(14, 28, row.frame.size.width - 28, 22);
-    sl.minimumValue = mn;
-    sl.maximumValue = mx;
-    sl.value = v;
+    sl.minimumValue = mn; sl.maximumValue = mx; sl.value = v;
     sl.minimumTrackTintColor = RAVEN_RED;
     sl.maximumTrackTintColor = [UIColor colorWithWhite:0.25 alpha:1.0];
     sl.thumbTintColor = [UIColor whiteColor];
@@ -992,27 +1116,23 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
     [row addSubview:sl];
     return row;
 }
-
 - (UIView*)dropdownRow:(NSString*)title value:(NSString*)val {
     UIView *row = [self baseRow];
     UILabel *l = mkLabel(title, 13, RAVEN_SILVER, NO);
     l.frame = CGRectMake(14, 0, 140, row.frame.size.height);
     [row addSubview:l];
-
     UIView *pill = [[UIView alloc] initWithFrame:CGRectMake(row.frame.size.width - 120, 8, 106, 28)];
     pill.backgroundColor = [UIColor colorWithWhite:0.18 alpha:1.0];
     pill.layer.cornerRadius = 6;
     pill.layer.borderWidth = 1;
     pill.layer.borderColor = [RAVEN_RED colorWithAlphaComponent:0.3].CGColor;
     [row addSubview:pill];
-
     UILabel *v = mkLabel(val, 12, RAVEN_SILVER, NO);
     v.textAlignment = NSTextAlignmentCenter;
     v.frame = pill.bounds;
     [pill addSubview:v];
     return row;
 }
-
 - (UIView*)buttonRow:(NSString*)title sel:(SEL)sel {
     UIView *row = [self baseRow];
     UIButton *b = [UIButton buttonWithType:UIButtonTypeCustom];
@@ -1024,7 +1144,6 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
     [row addSubview:b];
     return row;
 }
-
 - (UIView*)infoRow:(NSString*)title value:(NSString*)val {
     UIView *row = [self baseRow];
     UILabel *l = mkLabel(title, 13, RAVEN_SILVER, NO);
@@ -1036,7 +1155,6 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
     [row addSubview:v];
     return row;
 }
-
 - (UIView*)listRow:(NSString*)text {
     UIView *row = [self baseRow];
     row.frame = CGRectMake(0, 0, 280, 36);
@@ -1059,8 +1177,9 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
     dot.layer.cornerRadius = 4;
     [self.footerView addSubview:dot];
 
-    UILabel *l = mkLabel(@"Game: Connected    Status: Undetected    FPS: 120    Latency: 12ms",
-                         10, RAVEN_GREY, NO);
+    NSString* msg = [NSString stringWithFormat:@"Remote: v%s    Local: v%s    FPS: 120",
+                     Updater::remoteVersion().c_str(), RAVEN_LOCAL_VERSION];
+    UILabel *l = mkLabel(msg, 10, RAVEN_GREY, NO);
     l.frame = CGRectMake(26, 0, r.size.width - 220, r.size.height);
     [self.footerView addSubview:l];
 
@@ -1092,4 +1211,30 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
 @end
 """)
 
-print("done - Raven with imgur logo URLs")
+w("Raven.mm", r"""
+#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
+#import <dispatch/dispatch.h>
+#import "Src/Common.h"
+#import "Src/IL2CPP.h"
+#import "Src/Menu.h"
+#import "Src/Updater.h"
+#import "Src/Logos.h"
+
+__attribute__((constructor))
+static void raven_entry(void) {
+    @autoreleasepool {
+        RAVEN_LOG("entry");
+        // Kick off config fetch first — fires and forgets.
+        Updater::fetchAsync(kConfigURL);
+
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(4 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            IL2CPP::init();
+            [[RavenMenu shared] start];
+        });
+    }
+}
+""")
+
+print("done - Raven with remote config updater")
