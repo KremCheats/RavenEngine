@@ -834,8 +834,6 @@ static const CGFloat kCardRad    = 8;
 static const CGFloat kTabH       = 40;
 static const CGFloat kRowH       = 28;
 static const CGFloat kRowHBig    = 46;
-static const CGFloat kScaleMax   = 1.00;
-static const CGFloat kScaleFloor = 0.40;
 
 static NSCache* g_imgCache = nil;
 typedef void(^ImgBlock)(UIImage*);
