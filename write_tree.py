@@ -1405,19 +1405,15 @@ static void forceLandscape(void) {
     line.backgroundColor = [C_RED colorWithAlphaComponent:0.35];
     [self.headerView addSubview:line];
 
-    CGFloat controlsW = 96;
-    CGFloat bannerY = 6;
-    CGFloat bannerH = r.size.height - 12;
-
-    // The source header asset contains large black padding above/below the
-    // actual banner. Size the visible banner by the cropped artwork ratio.
-    CGFloat artAspect = 6.43;
-    CGFloat maxBannerW = r.size.width - controlsW - 28;
-    CGFloat bannerW = MIN(maxBannerW, bannerH * artAspect);
-    CGFloat bannerX = MAX(14, (r.size.width - controlsW - bannerW) / 2.0);
+    // Fill the entire top header with the RAVEN banner. Window controls
+    // remain layered above the artwork on the right.
+    CGFloat bannerX = 0;
+    CGFloat bannerY = 0;
+    CGFloat bannerW = r.size.width;
+    CGFloat bannerH = r.size.height;
 
     UIImageView* wm = [[UIImageView alloc] initWithFrame:CGRectMake(bannerX, bannerY, bannerW, bannerH)];
-    wm.contentMode = UIViewContentModeScaleAspectFit;
+    wm.contentMode = UIViewContentModeScaleAspectFill;
     wm.clipsToBounds = YES;
     wm.userInteractionEnabled = NO;
     wm.hidden = YES;
@@ -1506,7 +1502,7 @@ static void forceLandscape(void) {
         // vLJmsVo.png has wide black margins around the real vertical art.
         // Crop to the bordered artwork before AspectFill so it fills the
         // entire sidebar instead of looking like a poster inside a black box.
-        weakBG.image = cropNormalized(img, CGRectMake(0.267, 0.016, 0.465, 0.955));
+        weakBG.image = cropNormalized(img, CGRectMake(0.230, 0.010, 0.540, 0.980));
     });
 
     // Keep only a light readability tint. The source artwork is already dark.
