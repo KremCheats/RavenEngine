@@ -143,7 +143,6 @@ w("Src/Settings.h", r"""
 #define RAVEN_SETTINGS_H
 
 namespace RavenSettings {
-
     void load();
     void save();
 
@@ -211,7 +210,6 @@ namespace RavenSettings {
 
     extern float menuScale;
     extern bool  animations;
-
 }
 
 #endif
@@ -738,8 +736,6 @@ w("Src/ESP.mm", r"""
     self.lines.strokeColor = c.CGColor;
 }
 
-// TODO(real-esp): iterate players, project, draw. No-op until GameData offsets
-// are populated.
 - (void)render {
     if (!RavenSettings::espEnabled) return;
 }
@@ -766,15 +762,8 @@ w("Src/Aimbot.mm", r"""
 #import "Settings.h"
 
 namespace RavenAimbot {
-
 void setEnabled(bool on) { RavenSettings::aimEnabled = on; }
-
-// TODO(real-aimbot): find target, write view angles. No-op until GameData
-// offsets are populated.
-void tick() {
-    if (!RavenSettings::aimEnabled) return;
-}
-
+void tick() { if (!RavenSettings::aimEnabled) return; }
 }
 """)
 
@@ -820,37 +809,36 @@ w("Src/Menu.mm", r"""
 #import "Updater.h"
 #import "Settings.h"
 
-#define C_WIN     [UIColor colorWithRed:0.043 green:0.043 blue:0.055 alpha:0.97]
-#define C_HEAD    [UIColor colorWithRed:0.051 green:0.051 blue:0.063 alpha:1.0]
-#define C_SIDE    [UIColor colorWithRed:0.055 green:0.055 blue:0.071 alpha:1.0]
-#define C_CARD    [UIColor colorWithRed:0.078 green:0.078 blue:0.090 alpha:1.0]
-#define C_BORDER  [UIColor colorWithRed:0.157 green:0.157 blue:0.165 alpha:1.0]
-#define C_RED     [UIColor colorWithRed:0.835 green:0.122 blue:0.157 alpha:1.0]
-#define C_CRIMSON [UIColor colorWithRed:0.290 green:0.067 blue:0.086 alpha:1.0]
-#define C_TEXT    [UIColor colorWithRed:0.949 green:0.949 blue:0.957 alpha:1.0]
-#define C_SEC     [UIColor colorWithRed:0.573 green:0.573 blue:0.608 alpha:1.0]
-#define C_MUTE    [UIColor colorWithRed:0.384 green:0.384 blue:0.420 alpha:1.0]
+#define C_WIN      [UIColor colorWithRed:0.043 green:0.043 blue:0.055 alpha:0.97]
+#define C_HEAD     [UIColor colorWithRed:0.051 green:0.051 blue:0.063 alpha:1.0]
+#define C_SIDE     [UIColor colorWithRed:0.055 green:0.055 blue:0.071 alpha:1.0]
+#define C_CARD     [UIColor colorWithRed:0.078 green:0.078 blue:0.090 alpha:1.0]
+#define C_CARD_HI  [UIColor colorWithRed:0.098 green:0.098 blue:0.112 alpha:1.0]
+#define C_BORDER   [UIColor colorWithRed:0.157 green:0.157 blue:0.165 alpha:1.0]
+#define C_RED      [UIColor colorWithRed:0.835 green:0.122 blue:0.157 alpha:1.0]
+#define C_RED_DIM  [UIColor colorWithRed:0.520 green:0.075 blue:0.098 alpha:1.0]
+#define C_CRIMSON  [UIColor colorWithRed:0.290 green:0.067 blue:0.086 alpha:1.0]
+#define C_TEXT     [UIColor colorWithRed:0.949 green:0.949 blue:0.957 alpha:1.0]
+#define C_SEC      [UIColor colorWithRed:0.573 green:0.573 blue:0.608 alpha:1.0]
+#define C_MUTE     [UIColor colorWithRed:0.384 green:0.384 blue:0.420 alpha:1.0]
 
-static const CGFloat kRefW            = 860;
-static const CGFloat kRefH            = 500;
-static const CGFloat kPortraitRefW    = 480;
-static const CGFloat kPortraitRefH    = 720;
-static const CGFloat kHeaderH         = 74;
-static const CGFloat kPortraitHeaderH = 62;
-static const CGFloat kFooterH         = 28;
-static const CGFloat kSidebarW        = 165;
-static const CGFloat kPortraitSidebarW= 120;
-static const CGFloat kPad             = 18;
-static const CGFloat kCardGap         = 12;
-static const CGFloat kCardRad         = 8;
-static const CGFloat kTabH            = 38;
-static const CGFloat kRowH            = 26;
-static const CGFloat kRowHBig         = 40;
-static const CGFloat kScaleMax        = 1.00;
-static const CGFloat kScaleFloor      = 0.30;
+// Landscape-only reference dimensions
+static const CGFloat kRefW       = 860;
+static const CGFloat kRefH       = 500;
+static const CGFloat kHeaderH    = 108;
+static const CGFloat kFooterH    = 28;
+static const CGFloat kSidebarW   = 168;
+static const CGFloat kPad        = 18;
+static const CGFloat kCardGap    = 12;
+static const CGFloat kCardRad    = 8;
+static const CGFloat kTabH       = 40;
+static const CGFloat kRowH       = 28;
+static const CGFloat kRowHBig    = 46;
+static const CGFloat kScaleMax   = 1.00;
+static const CGFloat kScaleFloor = 0.40;
 
 // ==================================================================
-// async image loading
+// async image loading (NSCache + disk, never blocks main thread)
 // ==================================================================
 static NSCache* g_imgCache = nil;
 typedef void(^ImgBlock)(UIImage*);
@@ -878,7 +866,6 @@ static void loadLogoURLAsync(const char* url, ImgBlock cb) {
     if (!url || !*url) { if (cb) cb(nil); return; }
     UIImage* cached = loadCachedImage(url);
     if (cached) { if (cb) cb(cached); return; }
-
     if (cb) cb(nil);
 
     NSString* key = [NSString stringWithUTF8String:url];
@@ -913,7 +900,27 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
 }
 
 // ==================================================================
-// RavenWindow
+// Landscape-only enforcement
+// ==================================================================
+static NSUInteger raven_landscape_mask(id self, SEL _cmd) {
+    return UIInterfaceOrientationMaskLandscape;
+}
+
+static void forceLandscape(void) {
+    // Swizzle every UIViewController's supportedInterfaceOrientations to landscape.
+    // Applies to Combat Master only since the dylib is injected into that process.
+    Method m = class_getInstanceMethod([UIViewController class],
+                                       @selector(supportedInterfaceOrientations));
+    if (m) {
+        static dispatch_once_t once;
+        dispatch_once(&once, ^{
+            method_setImplementation(m, (IMP)raven_landscape_mask);
+        });
+    }
+}
+
+// ==================================================================
+// RavenWindow — pass-through by default
 // ==================================================================
 @implementation RavenWindow
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -927,7 +934,6 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
 - (UIView*)hitTest:(CGPoint)point withEvent:(UIEvent*)event {
     RavenMenu* m = [RavenMenu shared];
     if (!m) return nil;
-    // Access panel/ball through KVC since they're private.
     UIView* panel = [m valueForKey:@"panel"];
     UIView* ball  = [m valueForKey:@"ball"];
     if (panel && !panel.hidden && panel.alpha > 0.01) {
@@ -948,20 +954,29 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
 @end
 
 // ==================================================================
-// RVToggle
+// RVToggle — clean 38x20 pill, elevated knob
 // ==================================================================
 @implementation RVToggle { UIView* _track; UIView* _knob; }
 - (instancetype)init {
-    if ((self = [super initWithFrame:CGRectMake(0,0,34,18)])) {
+    if ((self = [super initWithFrame:CGRectMake(0, 0, 38, 20)])) {
         self.userInteractionEnabled = YES;
-        _track = [[UIView alloc] initWithFrame:CGRectMake(0,0,34,18)];
-        _track.layer.cornerRadius = 9;
-        _track.backgroundColor = [UIColor colorWithRed:0.204 green:0.204 blue:0.231 alpha:1.0];
+
+        _track = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 38, 20)];
+        _track.layer.cornerRadius = 10;
+        _track.layer.borderWidth = 1;
+        _track.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.06].CGColor;
+        _track.backgroundColor = [UIColor colorWithRed:0.18 green:0.18 blue:0.20 alpha:1.0];
         [self addSubview:_track];
-        _knob = [[UIView alloc] initWithFrame:CGRectMake(2,2,14,14)];
-        _knob.layer.cornerRadius = 7;
-        _knob.backgroundColor = [UIColor colorWithWhite:0.94 alpha:1.0];
+
+        _knob = [[UIView alloc] initWithFrame:CGRectMake(2, 2, 16, 16)];
+        _knob.layer.cornerRadius = 8;
+        _knob.backgroundColor = [UIColor colorWithWhite:0.96 alpha:1.0];
+        _knob.layer.shadowColor = [UIColor blackColor].CGColor;
+        _knob.layer.shadowOpacity = 0.35;
+        _knob.layer.shadowRadius = 2;
+        _knob.layer.shadowOffset = CGSizeMake(0, 1);
         [self addSubview:_knob];
+
         UITapGestureRecognizer* t = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(toggle)];
         t.cancelsTouchesInView = YES;
         [self addGestureRecognizer:t];
@@ -976,34 +991,45 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
 - (void)setOn:(BOOL)on { [self setOn:on animated:NO]; }
 - (void)setOn:(BOOL)on animated:(BOOL)animated { _on = on; [self applyStateAnimated:animated]; }
 - (void)applyStateAnimated:(BOOL)animated {
-    UIColor* bg = _on ? C_RED : [UIColor colorWithRed:0.204 green:0.204 blue:0.231 alpha:1.0];
-    CGRect target = _on ? CGRectMake(18, 2, 14, 14) : CGRectMake(2, 2, 14, 14);
-    void (^blk)(void) = ^{ _track.backgroundColor = bg; _knob.frame = target; };
-    if (animated) [UIView animateWithDuration:0.15 animations:blk];
+    UIColor* track = _on ? C_RED : [UIColor colorWithRed:0.18 green:0.18 blue:0.20 alpha:1.0];
+    CGRect knob = _on ? CGRectMake(38 - 18, 2, 16, 16) : CGRectMake(2, 2, 16, 16);
+    void (^blk)(void) = ^{
+        _track.backgroundColor = track;
+        _knob.frame = knob;
+    };
+    if (animated) [UIView animateWithDuration:0.18 animations:blk];
     else blk();
 }
 @end
 
 // ==================================================================
-// RVSlider
+// RVSlider — thin 3px track, 12px thumb
 // ==================================================================
 @implementation RVSlider { UIView* _track; UIView* _fill; UIView* _thumb; float _t; }
 - (instancetype)init {
-    if ((self = [super initWithFrame:CGRectMake(0,0,200,20)])) {
+    if ((self = [super initWithFrame:CGRectMake(0, 0, 200, 20)])) {
         self.userInteractionEnabled = YES;
         _minValue = 0; _maxValue = 100; _value = 0; _t = 0;
+
         _track = [UIView new];
-        _track.backgroundColor = [UIColor colorWithRed:0.22 green:0.22 blue:0.24 alpha:1.0];
+        _track.backgroundColor = [UIColor colorWithRed:0.22 green:0.22 blue:0.25 alpha:1.0];
         _track.layer.cornerRadius = 1.5;
         [self addSubview:_track];
+
         _fill = [UIView new];
         _fill.backgroundColor = C_RED;
         _fill.layer.cornerRadius = 1.5;
         [self addSubview:_fill];
+
         _thumb = [UIView new];
-        _thumb.backgroundColor = [UIColor whiteColor];
-        _thumb.layer.cornerRadius = 5;
+        _thumb.backgroundColor = [UIColor colorWithWhite:0.98 alpha:1.0];
+        _thumb.layer.cornerRadius = 6;
+        _thumb.layer.shadowColor = [UIColor blackColor].CGColor;
+        _thumb.layer.shadowOpacity = 0.35;
+        _thumb.layer.shadowRadius = 2;
+        _thumb.layer.shadowOffset = CGSizeMake(0, 1);
         [self addSubview:_thumb];
+
         UIPanGestureRecognizer* p = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(onDrag:)];
         p.cancelsTouchesInView = YES;
         [self addGestureRecognizer:p];
@@ -1017,11 +1043,17 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     [super layoutSubviews];
     CGFloat w = self.bounds.size.width;
     CGFloat h = self.bounds.size.height;
-    CGFloat th = 3;
-    CGFloat ty = (h - th)/2;
-    _track.frame = CGRectMake(5, ty, w - 10, th);
-    _fill.frame  = CGRectMake(5, ty, (w - 10) * _t, th);
-    _thumb.frame = CGRectMake(5 + (w - 10) * _t - 5, h/2 - 5, 10, 10);
+    CGFloat th = 3.0;
+    CGFloat ty = (h - th) / 2.0;
+    CGFloat padL = 8.0;
+    CGFloat padR = 8.0;
+    CGFloat usable = w - padL - padR;
+
+    _track.frame = CGRectMake(padL, ty, usable, th);
+    _fill.frame  = CGRectMake(padL, ty, usable * _t, th);
+
+    CGFloat thumbX = padL + usable * _t - 6.0;
+    _thumb.frame = CGRectMake(thumbX, (h - 12.0) / 2.0, 12.0, 12.0);
 }
 - (void)setValue:(float)value {
     float v = MAX(_minValue, MIN(_maxValue, value));
@@ -1032,7 +1064,8 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
 - (void)onDrag:(UIPanGestureRecognizer*)g {
     CGPoint p = [g locationInView:self];
     CGFloat w = self.bounds.size.width;
-    CGFloat frac = MAX(0, MIN(1, (p.x - 5) / (w - 10)));
+    CGFloat padL = 8.0, padR = 8.0;
+    CGFloat frac = MAX(0, MIN(1, (p.x - padL) / (w - padL - padR)));
     float v = _minValue + frac * (_maxValue - _minValue);
     self.value = v;
     if (self.onChange) self.onChange(v);
@@ -1040,7 +1073,8 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
 - (void)onTap:(UITapGestureRecognizer*)g {
     CGPoint p = [g locationInView:self];
     CGFloat w = self.bounds.size.width;
-    CGFloat frac = MAX(0, MIN(1, (p.x - 5) / (w - 10)));
+    CGFloat padL = 8.0, padR = 8.0;
+    CGFloat frac = MAX(0, MIN(1, (p.x - padL) / (w - padL - padR)));
     float v = _minValue + frac * (_maxValue - _minValue);
     self.value = v;
     if (self.onChange) self.onChange(v);
@@ -1052,6 +1086,8 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
 // ==================================================================
 @interface RavenMenu ()
 @property (nonatomic, strong) RavenWindow* window;
+@property (nonatomic, strong, readwrite) UIView* panel;
+@property (nonatomic, strong, readwrite) UIView* ball;
 @property (nonatomic, strong) UIView*   panelInner;
 @property (nonatomic, strong) UIView*   headerView;
 @property (nonatomic, strong) UIView*   sidebarView;
@@ -1063,13 +1099,9 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
 @property (nonatomic, strong) NSTimer* tickTimer;
 @property (nonatomic, assign) BOOL panelOpen;
 @property (nonatomic, assign) BOOL runtimeActive;
-@property (nonatomic, assign) BOOL wasPortrait;
 @property (nonatomic, assign) CGFloat uiScale;
 @property (nonatomic, assign) CGSize  lastBounds;
 @property (nonatomic, assign) CGRect  dragStartFrame;
-// panel + ball are redeclared as readwrite so internals can set them.
-@property (nonatomic, strong, readwrite) UIView* panel;
-@property (nonatomic, strong, readwrite) UIView* ball;
 @end
 
 @implementation RavenMenu
@@ -1086,12 +1118,14 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     if (self.window) return;
     [[RavenESP shared] attach];
 
+    // Force landscape.
+    forceLandscape();
+
     self.tabButtons    = [NSMutableArray array];
     self.tabViews      = [NSMutableDictionary dictionary];
     self.activeTab     = 0;
     self.uiScale       = 1.0;
     self.lastBounds    = CGSizeZero;
-    self.wasPortrait   = NO;
 
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         loadCachedImage(kWordmarkURL);
@@ -1111,7 +1145,17 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     self.window.hidden = NO;
     [self attachToScene];
 
-    self.wasPortrait = [self isPortrait];
+    // Force geometry update to landscape.
+    if (@available(iOS 16.0, *)) {
+        UIWindowScene* scene = self.window.windowScene;
+        if (scene) {
+            UIWindowSceneGeometryPreferencesIOS* prefs =
+                [[UIWindowSceneGeometryPreferencesIOS alloc] initWithInterfaceOrientations:UIInterfaceOrientationMaskLandscape];
+            [scene requestGeometryUpdateWithPreferences:prefs errorHandler:nil];
+        }
+    } else {
+        [[UIDevice currentDevice] setValue:@(UIInterfaceOrientationLandscapeRight) forKey:@"orientation"];
+    }
 
     [self buildPanel];
     [self buildBall];
@@ -1135,12 +1179,10 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
                                                     selector:@selector(onTick)
                                                     userInfo:nil
                                                      repeats:YES];
-    RAVEN_LOG("menu started");
+    RAVEN_LOG("menu started (landscape only)");
 }
 
-- (void)dealloc {
-    [[NSNotificationCenter defaultCenter] removeObserver:self];
-}
+- (void)dealloc { [[NSNotificationCenter defaultCenter] removeObserver:self]; }
 
 - (void)attachToScene {
     for (UIScene* s in [UIApplication sharedApplication].connectedScenes) {
@@ -1155,12 +1197,6 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
 }
 
 - (void)setVisible:(BOOL)v { self.window.hidden = !v; }
-
-- (BOOL)isPortrait {
-    if (!self.window) return NO;
-    CGSize b = self.window.bounds.size;
-    return b.height > b.width;
-}
 
 - (void)onGeometryChanged {
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.08 * NSEC_PER_SEC)),
@@ -1179,35 +1215,25 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     CGFloat usableW = screen.size.width - safe.left - safe.right;
     CGFloat usableH = screen.size.height - safe.top - safe.bottom;
 
-    BOOL portrait = (screen.size.height > screen.size.width);
-    CGFloat refW = portrait ? kPortraitRefW : kRefW;
-    CGFloat refH = portrait ? kPortraitRefH : kRefH;
-
-    CGFloat fit = MIN(usableW / refW, usableH / refH);
+    CGFloat fit = MIN(usableW / kRefW, usableH / kRefH);
     fit = MIN(fit, kScaleMax);
     fit = MAX(fit, kScaleFloor);
     self.uiScale = fit;
 
-    CGFloat panelW = refW * fit;
-    CGFloat panelH = refH * fit;
-
+    CGFloat panelW = kRefW * fit;
+    CGFloat panelH = kRefH * fit;
     if (panelW > usableW) panelW = usableW;
     if (panelH > usableH) panelH = usableH;
 
     CGFloat panelX = safe.left + (usableW - panelW) / 2;
     CGFloat panelY = safe.top  + (usableH - panelH) / 2;
 
-    if (portrait != self.wasPortrait) {
-        self.wasPortrait = portrait;
-        [self rebuildForOrientation];
-    }
-
     self.panel.transform = CGAffineTransformIdentity;
     self.panel.frame = CGRectMake(panelX, panelY, panelW, panelH);
 
-    CGFloat sx = panelW / refW;
-    CGFloat sy = panelH / refH;
-    self.panelInner.bounds = CGRectMake(0, 0, refW, refH);
+    CGFloat sx = panelW / kRefW;
+    CGFloat sy = panelH / kRefH;
+    self.panelInner.bounds = CGRectMake(0, 0, kRefW, kRefH);
     self.panelInner.transform = CGAffineTransformIdentity;
     self.panelInner.transform = CGAffineTransformMakeScale(sx, sy);
     self.panelInner.center = CGPointMake(panelW / 2.0, panelH / 2.0);
@@ -1220,28 +1246,6 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
         by = MAX(safe.top + 4,  MIN(screen.size.height - safe.bottom - bsize - 4, by));
         self.ball.frame = CGRectMake(bx, by, bsize, bsize);
     }
-}
-
-- (void)rebuildForOrientation {
-    NSInteger tab = self.activeTab;
-    [self.panel.subviews makeObjectsPerformSelector:@selector(removeFromSuperview)];
-    [self.tabButtons removeAllObjects];
-    [self.tabViews removeAllObjects];
-    CGFloat refW = self.wasPortrait ? kPortraitRefW : kRefW;
-    CGFloat refH = self.wasPortrait ? kPortraitRefH : kRefH;
-    CGFloat sidebarW = self.wasPortrait ? kPortraitSidebarW : kSidebarW;
-    CGFloat headerH  = self.wasPortrait ? kPortraitHeaderH : kHeaderH;
-
-    self.panelInner = [[UIView alloc] initWithFrame:CGRectMake(0, 0, refW, refH)];
-    self.panelInner.backgroundColor = [UIColor clearColor];
-    [self.panel addSubview:self.panelInner];
-
-    [self buildHeader:CGRectMake(0, 0, refW, headerH)];
-    [self buildSidebar:CGRectMake(0, headerH, sidebarW, refH - headerH - kFooterH)];
-    [self buildContent:CGRectMake(sidebarW, headerH, refW - sidebarW, refH - headerH - kFooterH)];
-    [self buildFooter:CGRectMake(0, refH - kFooterH, refW, kFooterH)];
-
-    [self selectTab:tab];
 }
 
 - (void)clampPanel {
@@ -1293,7 +1297,8 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     self.ball.multipleTouchEnabled = NO;
 
     UILabel* placeholder = [[UILabel alloc] initWithFrame:self.ball.bounds];
-    placeholder.text = @"R"; placeholder.textAlignment = NSTextAlignmentCenter;
+    placeholder.text = @"R";
+    placeholder.textAlignment = NSTextAlignmentCenter;
     placeholder.font = [UIFont systemFontOfSize:20 weight:UIFontWeightBold];
     placeholder.textColor = C_RED;
     placeholder.tag = 700;
@@ -1358,12 +1363,7 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
 }
 
 - (void)buildPanel {
-    CGFloat refW = self.wasPortrait ? kPortraitRefW : kRefW;
-    CGFloat refH = self.wasPortrait ? kPortraitRefH : kRefH;
-    CGFloat sidebarW = self.wasPortrait ? kPortraitSidebarW : kSidebarW;
-    CGFloat headerH  = self.wasPortrait ? kPortraitHeaderH : kHeaderH;
-
-    self.panel = [[UIView alloc] initWithFrame:CGRectMake(0, 0, refW, refH)];
+    self.panel = [[UIView alloc] initWithFrame:CGRectMake(0, 0, kRefW, kRefH)];
     self.panel.backgroundColor = C_WIN;
     self.panel.layer.cornerRadius = 12;
     self.panel.layer.borderWidth = 1;
@@ -1375,19 +1375,20 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     self.panel.clipsToBounds = YES;
     self.panel.userInteractionEnabled = YES;
 
-    self.panelInner = [[UIView alloc] initWithFrame:CGRectMake(0, 0, refW, refH)];
+    self.panelInner = [[UIView alloc] initWithFrame:CGRectMake(0, 0, kRefW, kRefH)];
     self.panelInner.backgroundColor = [UIColor clearColor];
     [self.panel addSubview:self.panelInner];
 
-    [self buildHeader:CGRectMake(0, 0, refW, headerH)];
-    [self buildSidebar:CGRectMake(0, headerH, sidebarW, refH - headerH - kFooterH)];
-    [self buildContent:CGRectMake(sidebarW, headerH, refW - sidebarW, refH - headerH - kFooterH)];
-    [self buildFooter:CGRectMake(0, refH - kFooterH, refW, kFooterH)];
+    [self buildHeader:CGRectMake(0, 0, kRefW, kHeaderH)];
+    [self buildSidebar:CGRectMake(0, kHeaderH, kSidebarW, kRefH - kHeaderH - kFooterH)];
+    [self buildContent:CGRectMake(kSidebarW, kHeaderH, kRefW - kSidebarW, kRefH - kHeaderH - kFooterH)];
+    [self buildFooter:CGRectMake(0, kRefH - kFooterH, kRefW, kFooterH)];
 
     [self.window addSubview:self.panel];
     [self selectTab:0];
 }
 
+// ---------------- HEADER — banner fills branding area ----------------
 - (void)buildHeader:(CGRect)r {
     self.headerView = [[UIView alloc] initWithFrame:r];
     self.headerView.backgroundColor = C_HEAD;
@@ -1398,18 +1399,28 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     line.backgroundColor = [C_RED colorWithAlphaComponent:0.35];
     [self.headerView addSubview:line];
 
-    UILabel* fallback = lbl(@"RAVEN", 22, C_TEXT, YES);
-    fallback.frame = CGRectMake(20, 0, 200, r.size.height);
-    fallback.tag = 800;
-    [self.headerView addSubview:fallback];
+    // Right-side controls footprint
+    CGFloat controlsW = 96;
 
-    UIImageView* wm = [[UIImageView alloc] initWithFrame:CGRectMake(10, 6, r.size.width - 110, r.size.height - 12)];
+    // Banner container: fills the branding zone — inset left, right stops before controls
+    CGFloat bannerX = 12;
+    CGFloat bannerY = 8;
+    CGFloat bannerW = r.size.width - controlsW - bannerX - 12;
+    CGFloat bannerH = r.size.height - 16;
+
+    UIImageView* wm = [[UIImageView alloc] initWithFrame:CGRectMake(bannerX, bannerY, bannerW, bannerH)];
     wm.contentMode = UIViewContentModeScaleAspectFit;
     wm.clipsToBounds = YES;
     wm.userInteractionEnabled = NO;
     wm.hidden = YES;
     wm.tag = 801;
     [self.headerView addSubview:wm];
+
+    // Fallback title
+    UILabel* fallback = lbl(@"RAVEN", 26, C_TEXT, YES);
+    fallback.frame = CGRectMake(bannerX, 0, bannerW, r.size.height);
+    fallback.tag = 800;
+    [self.headerView addSubview:fallback];
 
     __weak UIImageView* weakWM = wm;
     __weak UILabel* weakFB = fallback;
@@ -1420,6 +1431,7 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
         weakFB.hidden = YES;
     });
 
+    // Close (right)
     UIButton* close = [UIButton buttonWithType:UIButtonTypeSystem];
     close.frame = CGRectMake(r.size.width - 44, (r.size.height - 30)/2, 30, 30);
     [close setTitle:@"X" forState:UIControlStateNormal];
@@ -1428,6 +1440,7 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     [close addTarget:self action:@selector(togglePanel) forControlEvents:UIControlEventTouchUpInside];
     [self.headerView addSubview:close];
 
+    // Minimize (left of close)
     UIButton* min = [UIButton buttonWithType:UIButtonTypeSystem];
     min.frame = CGRectMake(r.size.width - 82, (r.size.height - 30)/2, 30, 30);
     [min setTitle:@"—" forState:UIControlStateNormal];
@@ -1468,11 +1481,13 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     ];
 }
 
+// ---------------- SIDEBAR — full-bleed art, light tint ----------------
 - (void)buildSidebar:(CGRect)r {
     self.sidebarView = [[UIView alloc] initWithFrame:r];
     self.sidebarView.backgroundColor = C_SIDE;
     self.sidebarView.clipsToBounds = YES;
 
+    // Full-bleed background, aspect-fill, centered crop.
     UIImageView* bg = [[UIImageView alloc] initWithFrame:self.sidebarView.bounds];
     bg.contentMode = UIViewContentModeScaleAspectFill;
     bg.clipsToBounds = YES;
@@ -1485,15 +1500,29 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
         if (img) weakBG.image = img;
     });
 
+    // Light tint only — the art should stay visible.
     UIView* tint = [[UIView alloc] initWithFrame:self.sidebarView.bounds];
-    tint.backgroundColor = [UIColor colorWithRed:0.02 green:0.02 blue:0.04 alpha:0.58];
+    tint.backgroundColor = [UIColor colorWithRed:0.02 green:0.02 blue:0.04 alpha:0.35];
     tint.userInteractionEnabled = NO;
     [self.sidebarView addSubview:tint];
 
+    // Top fade so tabs at top stay readable.
+    CAGradientLayer* topFade = [CAGradientLayer layer];
+    topFade.frame = CGRectMake(0, 0, r.size.width, r.size.height * 0.6);
+    topFade.colors = @[
+        (id)[UIColor colorWithRed:0.02 green:0.02 blue:0.04 alpha:0.75].CGColor,
+        (id)[UIColor colorWithRed:0.02 green:0.02 blue:0.04 alpha:0.0].CGColor
+    ];
+    topFade.startPoint = CGPointMake(0.5, 0.0);
+    topFade.endPoint = CGPointMake(0.5, 1.0);
+    [self.sidebarView.layer addSublayer:topFade];
+
+    // Right separator
     UIView* sep = [[UIView alloc] initWithFrame:CGRectMake(r.size.width - 1, 0, 1, r.size.height)];
     sep.backgroundColor = C_BORDER;
     [self.sidebarView addSubview:sep];
 
+    // Tabs
     NSArray* defs = [self tabDefs];
     CGFloat y = 14;
     for (NSInteger i = 0; i < defs.count; i++) {
@@ -1507,8 +1536,9 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
         btn.backgroundColor = [UIColor clearColor];
         [btn addTarget:self action:@selector(onTabTap:) forControlEvents:UIControlEventTouchUpInside];
 
-        UIView* accent = [[UIView alloc] initWithFrame:CGRectMake(0, 6, 2, kTabH - 12)];
+        UIView* accent = [[UIView alloc] initWithFrame:CGRectMake(0, 8, 2, kTabH - 16)];
         accent.backgroundColor = [UIColor clearColor];
+        accent.layer.cornerRadius = 1;
         accent.tag = 990;
         [btn addSubview:accent];
 
@@ -1522,14 +1552,16 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
         y += kTabH + 4;
     }
 
-    UILabel* m1 = lbl(@"SEE MORE.", 10, C_RED, YES);
-    m1.textAlignment = NSTextAlignmentCenter;
-    m1.frame = CGRectMake(0, r.size.height - 34, r.size.width, 14);
-    [self.sidebarView addSubview:m1];
-    UILabel* m2 = lbl(@"BE BETTER.", 10, C_RED, YES);
-    m2.textAlignment = NSTextAlignmentCenter;
-    m2.frame = CGRectMake(0, r.size.height - 20, r.size.width, 14);
-    [self.sidebarView addSubview:m2];
+    // Motto — shown ONCE at bottom, clean.
+    UILabel* motto = [[UILabel alloc] initWithFrame:CGRectMake(0, r.size.height - 42, r.size.width, 30)];
+    motto.text = @"SEE MORE.\nBE BETTER.";
+    motto.numberOfLines = 2;
+    motto.textAlignment = NSTextAlignmentCenter;
+    motto.textColor = C_RED;
+    motto.font = [UIFont systemFontOfSize:10 weight:UIFontWeightBold];
+    motto.backgroundColor = [UIColor clearColor];
+    motto.alpha = 0.9;
+    [self.sidebarView addSubview:motto];
 
     [self.panelInner addSubview:self.sidebarView];
 }
@@ -1547,7 +1579,7 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
         label.font = active
             ? [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold]
             : [UIFont systemFontOfSize:13 weight:UIFontWeightRegular];
-        b.backgroundColor = active ? [C_CRIMSON colorWithAlphaComponent:0.7] : [UIColor clearColor];
+        b.backgroundColor = active ? [C_CRIMSON colorWithAlphaComponent:0.55] : [UIColor clearColor];
     }
     for (UIView* v in self.contentView.subviews) [v removeFromSuperview];
 
@@ -1634,34 +1666,36 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     card.layer.borderColor = C_BORDER.CGColor;
 
     UILabel* t = lbl(title, 11, C_RED, YES);
-    t.frame = CGRectMake(12, 10, w - 24, 14);
+    t.frame = CGRectMake(14, 11, w - 28, 14);
     [card addSubview:t];
 
-    UIView* line = [[UIView alloc] initWithFrame:CGRectMake(12, 26, w - 24, 1)];
-    line.backgroundColor = [C_RED colorWithAlphaComponent:0.15];
+    UIView* line = [[UIView alloc] initWithFrame:CGRectMake(14, 28, w - 28, 1)];
+    line.backgroundColor = [C_RED colorWithAlphaComponent:0.12];
     [card addSubview:line];
 
-    CGFloat y = 32;
+    CGFloat y = 36;
     for (UIView* r in rows) {
         CGFloat rh = r.frame.size.height;
         r.frame = CGRectMake(0, y, w, rh);
         [card addSubview:r];
         y += rh;
     }
-    y += 6;
+    y += 8;
     card.frame = CGRectMake(0, 0, w, y);
     return card;
 }
 
+// ---------------- ROW BUILDERS ----------------
+
 - (UIView*)rowToggle:(NSString*)title on:(BOOL)on cb:(void(^)(BOOL))cb {
     UIView* row = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 0, kRowH)];
     UILabel* l = lbl(title, 13, C_TEXT, NO);
-    l.frame = CGRectMake(12, 0, 160, kRowH);
+    l.frame = CGRectMake(14, 0, 160, kRowH);
     [row addSubview:l];
     RVToggle* t = [[RVToggle alloc] init];
     t.on = on;
     t.onChange = cb;
-    t.frame = CGRectMake(row.frame.size.width - 46, (kRowH - 18)/2, 34, 18);
+    t.frame = CGRectMake(row.frame.size.width - 52, (kRowH - 20) / 2.0, 38, 20);
     t.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
     [row addSubview:t];
     return row;
@@ -1670,18 +1704,23 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
 - (UIView*)rowSlider:(NSString*)title min:(float)mn max:(float)mx val:(float)v cb:(void(^)(float))cb {
     UIView* row = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 0, kRowHBig)];
     UILabel* l = lbl(title, 13, C_TEXT, NO);
-    l.frame = CGRectMake(12, 4, 160, 16);
+    l.frame = CGRectMake(14, 4, 170, 18);
     [row addSubview:l];
-    UILabel* val = lbl([NSString stringWithFormat:@"%.0f", v], 11, C_RED, YES);
+
+    UILabel* val = lbl([NSString stringWithFormat:@"%.0f", v], 12, C_RED, YES);
     val.textAlignment = NSTextAlignmentRight;
-    val.frame = CGRectMake(row.frame.size.width - 62, 4, 50, 16);
+    val.frame = CGRectMake(row.frame.size.width - 68, 4, 54, 18);
     val.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
     [row addSubview:val];
+
     RVSlider* s = [[RVSlider alloc] init];
     s.minValue = mn; s.maxValue = mx; s.value = v;
-    s.frame = CGRectMake(12, 22, row.frame.size.width - 24, 16);
+    s.frame = CGRectMake(14, 26, row.frame.size.width - 28, 18);
     s.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    s.onChange = ^(float nv) { val.text = [NSString stringWithFormat:@"%.0f", nv]; if (cb) cb(nv); };
+    s.onChange = ^(float nv) {
+        val.text = [NSString stringWithFormat:@"%.0f", nv];
+        if (cb) cb(nv);
+    };
     [row addSubview:s];
     return row;
 }
@@ -1689,15 +1728,17 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
 - (UIView*)rowDropdown:(NSString*)title value:(NSString*)val {
     UIView* row = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 0, kRowH)];
     UILabel* l = lbl(title, 13, C_TEXT, NO);
-    l.frame = CGRectMake(12, 0, 140, kRowH);
+    l.frame = CGRectMake(14, 0, 140, kRowH);
     [row addSubview:l];
-    UIView* pill = [[UIView alloc] initWithFrame:CGRectMake(row.frame.size.width - 92, 3, 80, 20)];
-    pill.backgroundColor = [UIColor colorWithRed:0.102 green:0.102 blue:0.110 alpha:1.0];
+
+    UIView* pill = [[UIView alloc] initWithFrame:CGRectMake(row.frame.size.width - 100, 4, 86, 20)];
+    pill.backgroundColor = [UIColor colorWithRed:0.10 green:0.10 blue:0.11 alpha:1.0];
     pill.layer.cornerRadius = 4;
     pill.layer.borderWidth = 1;
     pill.layer.borderColor = C_BORDER.CGColor;
     pill.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
     [row addSubview:pill];
+
     UILabel* v = lbl(val, 11, C_TEXT, NO);
     v.textAlignment = NSTextAlignmentCenter;
     v.frame = pill.bounds;
@@ -1708,26 +1749,26 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
 - (UIView*)rowInfo:(NSString*)title value:(NSString*)val {
     UIView* row = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 0, kRowH)];
     UILabel* l = lbl(title, 13, C_TEXT, NO);
-    l.frame = CGRectMake(12, 0, 140, kRowH);
+    l.frame = CGRectMake(14, 0, 140, kRowH);
     [row addSubview:l];
     UILabel* v = lbl(val, 12, C_RED, YES);
     v.textAlignment = NSTextAlignmentRight;
-    v.frame = CGRectMake(row.frame.size.width - 152, 0, 140, kRowH);
+    v.frame = CGRectMake(row.frame.size.width - 160, 0, 146, kRowH);
     v.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
     [row addSubview:v];
     return row;
 }
 
 - (UIView*)rowButton:(NSString*)title tap:(void(^)(void))cb {
-    UIView* row = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 0, 34)];
+    UIView* row = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 0, 36)];
     UIButton* b = [UIButton buttonWithType:UIButtonTypeCustom];
-    b.frame = CGRectMake(10, 2, row.frame.size.width - 20, 30);
+    b.frame = CGRectMake(12, 2, row.frame.size.width - 24, 32);
     b.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     [b setTitle:title forState:UIControlStateNormal];
     [b setTitleColor:C_TEXT forState:UIControlStateNormal];
     b.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium];
     b.backgroundColor = [UIColor colorWithWhite:0.11 alpha:1.0];
-    b.layer.cornerRadius = 5;
+    b.layer.cornerRadius = 6;
     b.layer.borderWidth = 1;
     b.layer.borderColor = C_BORDER.CGColor;
     b.tag = (NSInteger)CFBridgingRetain([cb copy]);
@@ -1857,7 +1898,7 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     if ([tab isEqualToString:@"PLAYERS"]) {
         UILabel* empty = lbl(@"No player data available", 12, C_SEC, NO);
         empty.textAlignment = NSTextAlignmentCenter;
-        empty.frame = CGRectMake(0, 0, w - 24, 60);
+        empty.frame = CGRectMake(0, 0, w - 28, 60);
         UIView* emptyRow = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 0, 60)];
         [emptyRow addSubview:empty];
         UIView* list = [self card:@"PLAYER LIST" width:w rows:@[emptyRow]];
@@ -1895,6 +1936,7 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     return @[];
 }
 
+// ---------------- FOOTER ----------------
 - (void)buildFooter:(CGRect)r {
     self.footerView = [[UIView alloc] initWithFrame:r];
     self.footerView.backgroundColor = C_HEAD;
@@ -1936,4 +1978,4 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
 @end
 """)
 
-print("done - Raven UI fixes applied")
+print("done - Raven correction pass")
