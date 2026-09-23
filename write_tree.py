@@ -129,13 +129,8 @@ w("Src/Logos.h", r"""
 #ifndef RAVEN_LOGOS_H
 #define RAVEN_LOGOS_H
 
-// Header banner — aspect-fit, top bar only.
 static const char* kWordmarkURL  = "https://i.imgur.com/Cnzjdjh.png";
-
-// Floating open button.
 static const char* kBallLogoURL  = "https://i.imgur.com/MQG4stU.png";
-
-// Sidebar full background — aspect-fill cover.
 static const char* kEmblemURL    = "https://i.imgur.com/vLJmsVo.png";
 
 static const char* kConfigURL = "https://raw.githubusercontent.com/KremCheats/RuntimeSupport/main/config.json";
@@ -152,10 +147,9 @@ namespace RavenSettings {
     void load();
     void save();
 
-    // ---- Aimbot ----
     extern bool  aimEnabled;
-    extern int   aimBone;          // 0=head 1=neck 2=chest
-    extern int   aimActivation;    // 0=hold 1=toggle 2=always
+    extern int   aimBone;
+    extern int   aimActivation;
     extern float aimFov;
     extern float aimSmooth;
     extern float aimMaxDist;
@@ -167,7 +161,6 @@ namespace RavenSettings {
     extern float aimCircleRadius;
     extern float aimCircleThickness;
 
-    // ---- ESP ----
     extern bool  espEnabled;
     extern bool  espBox;
     extern bool  espCorner;
@@ -182,7 +175,6 @@ namespace RavenSettings {
     extern int   espSkeletonColor;
     extern int   espBoxColor;
 
-    // ---- Visuals ----
     extern bool  visCrosshair;
     extern int   visCrosshairStyle;
     extern float visCrosshairSize;
@@ -198,7 +190,6 @@ namespace RavenSettings {
     extern bool  visNoSmoke;
     extern bool  visBetterTextures;
 
-    // ---- Weapon ----
     extern bool  wpnNoRecoil;
     extern bool  wpnNoSpread;
     extern float wpnRecoilStrength;
@@ -209,7 +200,6 @@ namespace RavenSettings {
     extern bool  wpnNoSmoke;
     extern bool  wpnNoShells;
 
-    // ---- Misc ----
     extern bool  miscBunnyHop;
     extern bool  miscAutoStrafe;
     extern bool  miscNoFallDamage;
@@ -219,11 +209,10 @@ namespace RavenSettings {
     extern bool  miscHideWhenClosed;
     extern float miscMenuOpacity;
 
-    // ---- Interface ----
     extern float menuScale;
     extern bool  animations;
 
-} // namespace RavenSettings
+}
 
 #endif
 """)
@@ -472,11 +461,11 @@ namespace IL2CPP {
     void* field(void* klass, const char* name);
 
     void* invoke(void* method, void* obj, void** params);
-    void* newObject(void* klass);
+   (m void* newObject(void* klass);
 
     template<typename T>
-    inline T read(void* obj, uint32_t offset) {
-        if (!obj) return T{};
+    inline T read(void*ain obj, uint32_t offset) {
+       M if (!obj) return T{};
         return *(T*)((uintptr_t)obj + offset);
     }
 
@@ -512,7 +501,7 @@ typedef void*   (*t_domain_assembly_open)(void*, const char*);
 typedef void*   (*t_assembly_get_image)(void*);
 typedef void*   (*t_class_from_name)(void*, const char*, const char*);
 typedef void*   (*t_class_get_method_from_name)(void*, const char*, int);
-typedef void*   (*t_class_get_field_from_name)(void*, const char*);
+typedef void*   (*t_class,_get_field nullptr_from_name)(void*, const char,*);
 typedef void*   (*t_runtime_invoke)(void*, void*, void**, void**);
 typedef void*   (*t_object_new)(void*);
 typedef uint32_t (*t_field_get_offset)(void*);
@@ -620,7 +609,7 @@ Matrix4x4 getViewProjection() {
     if (!camK) return out;
     void* mainM = method(camK, GameData::kGetMainCamera, 0);
     if (!mainM) return out;
-    void* cam = invoke(mainM, nullptr, nullptr);
+    void* cam = invoke nullptr);
     if (!cam) return out;
 
     Matrix4x4 proj = *(Matrix4x4*)((uintptr_t)cam + GameData::Off::ProjMatrix());
@@ -741,7 +730,7 @@ w("Src/ESP.mm", r"""
 }
 
 - (void)drawLine:(CGPoint)a to:(CGPoint)b color:(UIColor*)c {
-    CGMutablePathRef cur = CGPathCreateMutablePath(self.lines.path ?: CGPathCreateMutable());
+    CGMutablePathRef cur = CGPathCreateMutableCopy(self.lines.path ?: CGPathCreateMutable());
     CGPathMoveToPoint(cur, NULL, a.x, a.y);
     CGPathAddLineToPoint(cur, NULL, b.x, b.y);
     self.lines.path = cur;
@@ -749,13 +738,10 @@ w("Src/ESP.mm", r"""
     self.lines.strokeColor = c.CGColor;
 }
 
-// ---- Runtime render hook ----
-// Not implemented yet. Real logic (player iteration, world-to-screen,
-// bone lookup, box drawing) will connect here once GameData offsets
-// are populated from the CM offsets repo. Until then this is a no-op.
+// TODO(real-esp): iterate players, project, draw. No-op until GameData offsets
+// are populated from the CM offsets repo.
 - (void)render {
     if (!RavenSettings::espEnabled) return;
-    // TODO(real-esp): iterate player list, project, draw.
 }
 
 @end
@@ -783,13 +769,10 @@ namespace RavenAimbot {
 
 void setEnabled(bool on) { RavenSettings::aimEnabled = on; }
 
-// ---- Runtime tick hook ----
-// Not implemented yet. Real logic (target selection, bone position,
-// view-angle write) will connect here once GameData offsets are
-// populated. Until then this is a no-op.
+// TODO(real-aimbot): find target, write view angles. No-op until GameData
+// offsets are populated.
 void tick() {
     if (!RavenSettings::aimEnabled) return;
-    // TODO(real-aimbot): find target, write view angles.
 }
 
 }
@@ -801,7 +784,6 @@ w("Src/Menu.h", r"""
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
 
-// Custom window: only consumes touches inside RAVEN controls.
 @interface RavenWindow : UIWindow
 @end
 
@@ -840,7 +822,6 @@ w("Src/Menu.mm", r"""
 #import "Updater.h"
 #import "Settings.h"
 
-// palette
 #define C_WIN     [UIColor colorWithRed:0.043 green:0.043 blue:0.055 alpha:0.97]
 #define C_HEAD    [UIColor colorWithRed:0.051 green:0.051 blue:0.063 alpha:1.0]
 #define C_SIDE    [UIColor colorWithRed:0.055 green:0.055 blue:0.071 alpha:1.0]
@@ -852,7 +833,6 @@ w("Src/Menu.mm", r"""
 #define C_SEC     [UIColor colorWithRed:0.573 green:0.573 blue:0.608 alpha:1.0]
 #define C_MUTE    [UIColor colorWithRed:0.384 green:0.384 blue:0.420 alpha:1.0]
 
-// reference sizes
 static const CGFloat kRefW            = 860;
 static const CGFloat kRefH            = 500;
 static const CGFloat kPortraitRefW    = 480;
@@ -869,10 +849,10 @@ static const CGFloat kTabH            = 38;
 static const CGFloat kRowH            = 26;
 static const CGFloat kRowHBig         = 40;
 static const CGFloat kScaleMax        = 1.00;
-static const CGFloat kScaleFloor      = 0.30;   // absolute min for tap targets
+static const CGFloat kScaleFloor      = 0.30;
 
 // ==================================================================
-// async image loading — NEVER blocks main thread
+// async image loading
 // ==================================================================
 static NSCache* g_imgCache = nil;
 typedef void(^ImgBlock)(UIImage*);
@@ -896,14 +876,11 @@ static UIImage* loadCachedImage(const char* url) {
     return img;
 }
 
-// Returns cached image immediately via cb if available.
-// Otherwise returns nil via cb, then fetches in background and calls cb again.
 static void loadLogoURLAsync(const char* url, ImgBlock cb) {
     if (!url || !*url) { if (cb) cb(nil); return; }
     UIImage* cached = loadCachedImage(url);
     if (cached) { if (cb) cb(cached); return; }
 
-    // signal placeholder state
     if (cb) cb(nil);
 
     NSString* key = [NSString stringWithUTF8String:url];
@@ -914,11 +891,9 @@ static void loadLogoURLAsync(const char* url, ImgBlock cb) {
         if (!data) return;
         UIImage* img = [UIImage imageWithData:data];
         if (!img) return;
-        // cache on background
         if (!g_imgCache) g_imgCache = [[NSCache alloc] init];
         [g_imgCache setObject:img forKey:key];
         [data writeToFile:diskPathFor(key) atomically:YES];
-        // hop to main for UI update
         dispatch_async(dispatch_get_main_queue(), ^{
             if (cb) cb(img);
         });
@@ -937,7 +912,7 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
 }
 
 // ==================================================================
-// RavenWindow — passthrough by default
+// RavenWindow
 // ==================================================================
 @implementation RavenWindow
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -971,7 +946,7 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
 @end
 
 // ==================================================================
-// RVToggle 34x18
+// RVToggle
 // ==================================================================
 @implementation RVToggle { UIView* _track; UIView* _knob; }
 - (instancetype)init {
@@ -1115,12 +1090,10 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     self.lastBounds    = CGSizeZero;
     self.wasPortrait   = NO;
 
-    // Warm cache in background. Never blocks main thread.
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         loadCachedImage(kWordmarkURL);
         loadCachedImage(kBallLogoURL);
         loadCachedImage(kEmblemURL);
-        // Prime downloads if not yet cached
         loadLogoURLAsync(kWordmarkURL, ^(UIImage* i){ (void)i; });
         loadLogoURLAsync(kBallLogoURL,   ^(UIImage* i){ (void)i; });
         loadLogoURLAsync(kEmblemURL,     ^(UIImage* i){ (void)i; });
@@ -1135,7 +1108,6 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     self.window.hidden = NO;
     [self attachToScene];
 
-    // Detect initial orientation before building
     self.wasPortrait = [self isPortrait];
 
     [self buildPanel];
@@ -1144,8 +1116,6 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
 
     self.panel.hidden = YES;
     self.ball.hidden  = NO;
-
-    // runtime is active once setup completes
     self.runtimeActive = true;
 
     [[NSNotificationCenter defaultCenter] addObserver:self
@@ -1199,9 +1169,6 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     });
 }
 
-// ==================================================================
-// Layout — fit scale is king; menu can NEVER exceed safe area
-// ==================================================================
 - (void)relayout {
     if (!self.window) return;
     CGRect screen = self.window.bounds;
@@ -1223,14 +1190,12 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     CGFloat panelW = refW * fit;
     CGFloat panelH = refH * fit;
 
-    // Hard guarantee: never exceed usable area.
     if (panelW > usableW) panelW = usableW;
     if (panelH > usableH) panelH = usableH;
 
     CGFloat panelX = safe.left + (usableW - panelW) / 2;
     CGFloat panelY = safe.top  + (usableH - panelH) / 2;
 
-    // If orientation changed, rebuild panel at new reference size.
     if (portrait != self.wasPortrait) {
         self.wasPortrait = portrait;
         [self rebuildForOrientation];
@@ -1239,7 +1204,6 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     self.panel.transform = CGAffineTransformIdentity;
     self.panel.frame = CGRectMake(panelX, panelY, panelW, panelH);
 
-    // panelInner is drawn at ref size, then scaled down to fit panel.
     CGFloat sx = panelW / refW;
     CGFloat sy = panelH / refH;
     self.panelInner.bounds = CGRectMake(0, 0, refW, refH);
@@ -1247,7 +1211,6 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     self.panelInner.transform = CGAffineTransformMakeScale(sx, sy);
     self.panelInner.center = CGPointMake(panelW / 2.0, panelH / 2.0);
 
-    // Ball position
     CGFloat bsize = 46;
     if (!self.ball.hidden) {
         CGFloat bx = screen.size.width - safe.right - bsize - 16;
@@ -1259,13 +1222,10 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
 }
 
 - (void)rebuildForOrientation {
-    // preserve active tab
     NSInteger tab = self.activeTab;
-    // Tear down old panel content
     [self.panel.subviews makeObjectsPerformSelector:@selector(removeFromSuperview)];
     [self.tabButtons removeAllObjects];
     [self.tabViews removeAllObjects];
-    // Rebuild header/sidebar/content/footer at the new reference size
     CGFloat refW = self.wasPortrait ? kPortraitRefW : kRefW;
     CGFloat refH = self.wasPortrait ? kPortraitRefH : kRefH;
     CGFloat sidebarW = self.wasPortrait ? kPortraitSidebarW : kSidebarW;
@@ -1289,7 +1249,6 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     UIEdgeInsets safe = self.window.safeAreaInsets;
     CGRect f = self.panel.frame;
 
-    // If bigger than safe area, shrink first.
     CGFloat maxW = screen.size.width - safe.left - safe.right;
     CGFloat maxH = screen.size.height - safe.top - safe.bottom;
     if (f.size.width  > maxW) f.size.width  = maxW;
@@ -1318,9 +1277,6 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     self.panel.frame = f;
 }
 
-// ==================================================================
-// BALL
-// ==================================================================
 - (void)buildBall {
     CGFloat size = 46;
     self.ball = [[UIView alloc] initWithFrame:CGRectMake(0, 0, size, size)];
@@ -1400,9 +1356,6 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     [g setTranslation:CGPointZero inView:self.window];
 }
 
-// ==================================================================
-// PANEL construction
-// ==================================================================
 - (void)buildPanel {
     CGFloat refW = self.wasPortrait ? kPortraitRefW : kRefW;
     CGFloat refH = self.wasPortrait ? kPortraitRefH : kRefH;
@@ -1434,7 +1387,6 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     [self selectTab:0];
 }
 
-// ---------------- HEADER ----------------
 - (void)buildHeader:(CGRect)r {
     self.headerView = [[UIView alloc] initWithFrame:r];
     self.headerView.backgroundColor = C_HEAD;
@@ -1503,7 +1455,6 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     }
 }
 
-// ---------------- SIDEBAR ----------------
 - (NSArray*)tabDefs {
     return @[
         @{@"title":@"AIMBOT",   @"key":@"aimbot"},
@@ -1636,7 +1587,6 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
 
     CGFloat startY = 68;
     CGFloat availW = W - kPad*2;
-    // Two columns only when there's room. Portrait: single column.
     BOOL twoCols = (availW >= 500);
     CGFloat colW = twoCols ? (availW - kCardGap) / 2.0 : availW;
 
@@ -1702,9 +1652,6 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     return card;
 }
 
-// ==================================================================
-// Row factories — ALL bound to RavenSettings state
-// ==================================================================
 - (UIView*)rowToggle:(NSString*)title on:(BOOL)on cb:(void(^)(BOOL))cb {
     UIView* row = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 0, kRowH)];
     UILabel* l = lbl(title, 13, C_TEXT, NO);
@@ -1793,9 +1740,6 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     if (cb) cb();
 }
 
-// ==================================================================
-// Cards — state-bound
-// ==================================================================
 - (NSArray*)cardsForTab:(NSString*)tab width:(CGFloat)w {
     if ([tab isEqualToString:@"AIMBOT"]) {
         UIView* general = [self card:@"GENERAL" width:w rows:@[
@@ -1910,7 +1854,6 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     }
 
     if ([tab isEqualToString:@"PLAYERS"]) {
-        // No fake data. Populated only when a live source exists.
         UILabel* empty = lbl(@"No player data available", 12, C_SEC, NO);
         empty.textAlignment = NSTextAlignmentCenter;
         empty.frame = CGRectMake(0, 0, w - 24, 60);
@@ -1951,7 +1894,6 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     return @[];
 }
 
-// ---------------- FOOTER ----------------
 - (void)buildFooter:(CGRect)r {
     self.footerView = [[UIView alloc] initWithFrame:r];
     self.footerView.backgroundColor = C_HEAD;
@@ -1977,7 +1919,6 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
     [self.panelInner addSubview:self.footerView];
 }
 
-// ==================================================================
 - (void)onTick {
     if (!self.window) return;
     CGSize b = self.window.bounds.size;
@@ -1987,7 +1928,6 @@ static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
         [self clampPanel];
     }
     if (!self.runtimeActive) return;
-    // only run feature logic when the corresponding feature is enabled
     if (RavenSettings::espEnabled) [[RavenESP shared] render];
     if (RavenSettings::aimEnabled) RavenAimbot::tick();
 }
