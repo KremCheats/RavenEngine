@@ -127,9 +127,9 @@ w("Src/Logos.h", r"""
 #ifndef RAVEN_LOGOS_H
 #define RAVEN_LOGOS_H
 
-static const char* kBallLogoB64   = "";
-static const char* kHeaderLogoB64 = "";
-static const char* kSidebarArtB64 = "";
+static const char* kBallLogoURL   = "https://i.imgur.com/MQG4stU.png";
+static const char* kHeaderLogoURL = "https://i.imgur.com/Cnzjdjh.png";
+static const char* kSidebarArtURL = "https://i.imgur.com/80o5CRE.png";
 
 #endif
 """)
@@ -520,14 +520,34 @@ w("Src/Menu.mm", r"""
 #import "IL2CPP.h"
 
 // ==================================================================
-// helpers
+// image loading — URL based, with memory + disk cache
 // ==================================================================
-static UIImage* decodeB64(const char* b64) {
-    if (!b64 || !*b64) return nil;
-    NSString* s = [NSString stringWithUTF8String:b64];
-    NSData* d = [[NSData alloc] initWithBase64EncodedString:s
-                                                    options:NSDataBase64DecodingIgnoreUnknownCharacters];
-    return d ? [UIImage imageWithData:d] : nil;
+static NSCache* g_imgCache = nil;
+
+static UIImage* loadLogoURL(const char* url) {
+    if (!url || !*url) return nil;
+    if (!g_imgCache) g_imgCache = [[NSCache alloc] init];
+
+    NSString* key = [NSString stringWithUTF8String:url];
+    UIImage* cached = [g_imgCache objectForKey:key];
+    if (cached) return cached;
+
+    NSString* dir = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES) firstObject];
+    NSString* hash = [NSString stringWithFormat:@"%lu", (unsigned long)key.hash];
+    NSString* path = [dir stringByAppendingPathComponent:[hash stringByAppendingString:@".img"]];
+    NSData* data = [NSData dataWithContentsOfFile:path];
+
+    if (!data) {
+        NSURL* u = [NSURL URLWithString:key];
+        if (!u) return nil;
+        data = [NSData dataWithContentsOfURL:u];
+        if (data) [data writeToFile:path atomically:YES];
+    }
+    if (!data) return nil;
+
+    UIImage* img = [UIImage imageWithData:data];
+    if (img) [g_imgCache setObject:img forKey:key];
+    return img;
 }
 
 static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold) {
@@ -540,8 +560,6 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
     return l;
 }
 
-// ==================================================================
-// RavenMenu
 // ==================================================================
 @interface RavenMenu ()
 @property (nonatomic, strong) UIWindow *window;
@@ -557,12 +575,9 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
 @property (nonatomic, strong) NSTimer *tickTimer;
 @property (nonatomic, assign) BOOL panelOpen;
 @property (nonatomic, assign) BOOL engineOn;
-
-// feature state mirrors (used by tab UI)
 @property (nonatomic, assign) BOOL aimOn;
 @property (nonatomic, assign) BOOL espOn;
 @property (nonatomic, assign) BOOL visOn;
-@property (nonatomic, assign) BOOL boxColor;
 @end
 
 @implementation RavenMenu
@@ -596,7 +611,6 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
     [self.window addSubview:self.panel];
     self.panel.hidden = YES;
 
-    // 30 Hz — enough for smooth UI, gentle on the game
     self.tickTimer = [NSTimer scheduledTimerWithTimeInterval:1.0/30.0
                                                       target:self
                                                     selector:@selector(onTick)
@@ -620,9 +634,6 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
 
 - (void)setVisible:(BOOL)v { self.window.hidden = !v; }
 
-// ============================================================
-// BALL
-// ============================================================
 - (void)buildBall {
     CGFloat size = 56.0;
     CGFloat x = [UIScreen mainScreen].bounds.size.width - size - 20;
@@ -638,7 +649,7 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
     self.ball.layer.shadowOffset = CGSizeZero;
     self.ball.userInteractionEnabled = YES;
 
-    UIImage *ballLogo = decodeB64(kBallLogoB64);
+    UIImage *ballLogo = loadLogoURL(kBallLogoURL);
     if (ballLogo) {
         UIImageView *iv = [[UIImageView alloc] initWithFrame:self.ball.bounds];
         iv.image = ballLogo;
@@ -672,9 +683,6 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
     [g setTranslation:CGPointZero inView:self.window];
 }
 
-// ============================================================
-// PANEL — header + sidebar + content + footer
-// ============================================================
 - (void)buildPanel {
     CGRect scr = [UIScreen mainScreen].bounds;
     CGFloat margin = 8;
@@ -708,7 +716,6 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
     [self selectTab:0];
 }
 
-// ---------------- HEADER ----------------
 - (void)buildHeader:(CGRect)r {
     self.headerView = [[UIView alloc] initWithFrame:r];
     self.headerView.backgroundColor = RAVEN_DARK;
@@ -717,10 +724,9 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
     self.headerView.layer.borderWidth = 1;
     self.headerView.layer.borderColor = [RAVEN_RED colorWithAlphaComponent:0.4].CGColor;
 
-    // logo / title
-    UIImage *logo = decodeB64(kHeaderLogoB64);
+    UIImage *logo = loadLogoURL(kHeaderLogoURL);
     if (logo) {
-        UIImageView *iv = [[UIImageView alloc] initWithFrame:CGRectMake(10, 10, 180, 60)];
+        UIImageView *iv = [[UIImageView alloc] initWithFrame:CGRectMake(6, 6, r.size.width - 12, r.size.height - 12)];
         iv.image = logo;
         iv.contentMode = UIViewContentModeScaleAspectFit;
         [self.headerView addSubview:iv];
@@ -733,50 +739,18 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
         [self.headerView addSubview:byline];
     }
 
-    // tagline center
-    CGFloat cx = r.size.width / 2;
-    UILabel *tag = mkLabel(@"\"DOMINATE DIFFERENTLY\"", 11, RAVEN_SILVER, NO);
-    tag.textAlignment = NSTextAlignmentCenter;
-    tag.frame = CGRectMake(cx - 120, 12, 240, 16);
-    [self.headerView addSubview:tag];
-    UILabel *sub = mkLabel(@"PRECISION  |  CONTROL  |  SUPERIORITY", 10, RAVEN_GREY, NO);
-    sub.textAlignment = NSTextAlignmentCenter;
-    sub.frame = CGRectMake(cx - 140, 30, 280, 14);
-    [self.headerView addSubview:sub];
-
-    // right status
-    UILabel *v = mkLabel(@"v1.0.0", 11, RAVEN_SILVER, NO);
-    v.textAlignment = NSTextAlignmentRight;
-    v.frame = CGRectMake(r.size.width - 130, 12, 100, 16);
-    [self.headerView addSubview:v];
-
-    UIView *dot = [[UIView alloc] initWithFrame:CGRectMake(r.size.width - 128, 40, 8, 8)];
-    dot.backgroundColor = [UIColor colorWithRed:0.2 green:0.9 blue:0.3 alpha:1.0];
-    dot.layer.cornerRadius = 4;
-    [self.headerView addSubview:dot];
-    UILabel *inj = mkLabel(@"Injected", 11, RAVEN_SILVER, NO);
-    inj.frame = CGRectMake(r.size.width - 116, 34, 80, 18);
-    [self.headerView addSubview:inj];
-
-    // minimize / close
-    UIButton *minBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    minBtn.frame = CGRectMake(r.size.width - 90, 60, 36, 28);
-    [minBtn setTitle:@"—" forState:UIControlStateNormal];
-    [minBtn setTitleColor:RAVEN_RED forState:UIControlStateNormal];
-    minBtn.titleLabel.font = [UIFont boldSystemFontOfSize:22];
-    [minBtn addTarget:self action:@selector(togglePanel) forControlEvents:UIControlEventTouchUpInside];
-    [self.headerView addSubview:minBtn];
-
+    // close button (always overlays logo)
     UIButton *close = [UIButton buttonWithType:UIButtonTypeSystem];
-    close.frame = CGRectMake(r.size.width - 46, 60, 36, 28);
+    close.frame = CGRectMake(r.size.width - 42, 6, 36, 30);
     [close setTitle:@"X" forState:UIControlStateNormal];
     [close setTitleColor:RAVEN_RED forState:UIControlStateNormal];
     close.titleLabel.font = [UIFont boldSystemFontOfSize:18];
+    close.backgroundColor = [UIColor colorWithWhite:0 alpha:0.45];
+    close.layer.cornerRadius = 6;
     [close addTarget:self action:@selector(togglePanel) forControlEvents:UIControlEventTouchUpInside];
     [self.headerView addSubview:close];
 }
 
-// ---------------- SIDEBAR ----------------
 - (NSArray*)tabDefs {
     return @[
         @{@"title":@"AIMBOT",   @"icon":@"scope"},
@@ -792,6 +766,18 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
 - (void)buildSidebar:(CGRect)r {
     self.sidebarView = [[UIView alloc] initWithFrame:r];
     self.sidebarView.backgroundColor = [RAVEN_DARK colorWithAlphaComponent:0.5];
+    self.sidebarView.clipsToBounds = YES;
+
+    // art first (behind everything)
+    UIImage *art = loadLogoURL(kSidebarArtURL);
+    if (art) {
+        UIImageView *iv = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, r.size.width, r.size.height)];
+        iv.image = art;
+        iv.contentMode = UIViewContentModeScaleAspectFill;
+        iv.alpha = 0.18;
+        iv.clipsToBounds = YES;
+        [self.sidebarView addSubview:iv];
+    }
 
     NSArray *defs = [self tabDefs];
     CGFloat y = 12;
@@ -799,7 +785,6 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
 
     for (NSInteger i = 0; i < defs.count; i++) {
         NSDictionary *d = defs[i];
-
         UIButton *btn = [UIButton buttonWithType:UIButtonTypeCustom];
         btn.frame = CGRectMake(8, y, r.size.width - 16, h);
         btn.tag = i;
@@ -825,26 +810,11 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
         y += h + 4;
     }
 
-    // sidebar art (raven)
-    UIImage *art = decodeB64(kSidebarArtB64);
-    CGFloat artTop = y + 10;
-    CGFloat artH = r.size.height - artTop - 20;
-    if (artH > 60) {
-        UIImageView *iv = [[UIImageView alloc] initWithFrame:CGRectMake(10, artTop, r.size.width - 20, artH)];
-        if (art) {
-            iv.image = art;
-            iv.contentMode = UIViewContentModeScaleAspectFit;
-        } else {
-            iv.backgroundColor = [UIColor clearColor];
-        }
-        [self.sidebarView addSubview:iv];
-
-        UILabel *motto = mkLabel(@"\"SEE MORE\nBE BETTER\"", 9, RAVEN_RED, NO);
-        motto.numberOfLines = 2;
-        motto.textAlignment = NSTextAlignmentCenter;
-        motto.frame = CGRectMake(0, r.size.height - 40, r.size.width, 30);
-        [self.sidebarView addSubview:motto];
-    }
+    UILabel *motto = mkLabel(@"\"SEE MORE\nBE BETTER\"", 9, RAVEN_RED, NO);
+    motto.numberOfLines = 2;
+    motto.textAlignment = NSTextAlignmentCenter;
+    motto.frame = CGRectMake(0, r.size.height - 40, r.size.width, 30);
+    [self.sidebarView addSubview:motto];
 }
 
 - (void)onTabTap:(UIButton*)b {
@@ -870,7 +840,6 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
     [self.contentView addSubview:content];
 }
 
-// ---------------- CONTENT ----------------
 - (void)buildContent:(CGRect)r {
     self.contentView = [[UIView alloc] initWithFrame:r];
     self.contentView.backgroundColor = [UIColor clearColor];
@@ -887,18 +856,15 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
     if (W < 100) W = 260;
 
     NSArray *rows = [self rowsForTab:tab];
-
     for (UIView *row in rows) {
         row.frame = CGRectMake(pad, y, W, row.frame.size.height);
         [sv addSubview:row];
         y += row.frame.size.height + 6;
     }
-
     sv.contentSize = CGSizeMake(W, y + 20);
     return sv;
 }
 
-// ---------------- ROWS FOR EACH TAB ----------------
 - (NSArray*)rowsForTab:(NSString*)tab {
     if ([tab isEqualToString:@"AIMBOT"]) {
         return @[
@@ -953,9 +919,7 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
         NSMutableArray *rows = [NSMutableArray array];
         NSArray *names = @[@"Kremityss 12m", @"Devoo 28m", @"VAMP 41m", @"797 BUDDA 63m",
                            @"Player123 87m", @"User456 104m", @"Enemy 132m", @"Target 148m"];
-        for (NSString *n in names) {
-            [rows addObject:[self listRow:n]];
-        }
+        for (NSString *n in names) [rows addObject:[self listRow:n]];
         return rows;
     }
     if ([tab isEqualToString:@"CONFIG"]) {
@@ -978,7 +942,6 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
     return @[];
 }
 
-// ---------------- ROW BUILDERS ----------------
 - (UIView*)baseRow {
     UIView *row = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 280, 44)];
     row.backgroundColor = RAVEN_CARD;
@@ -1083,7 +1046,6 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
     return row;
 }
 
-// ---------------- FOOTER ----------------
 - (void)buildFooter:(CGRect)r {
     self.footerView = [[UIView alloc] initWithFrame:r];
     self.footerView.backgroundColor = RAVEN_DARK;
@@ -1108,9 +1070,6 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
     [self.footerView addSubview:r2];
 }
 
-// ============================================================
-// ACTIONS
-// ============================================================
 - (void)onAimToggle:(UISwitch*)s    { self.aimOn = s.on; RavenAimbot::setEnabled(s.on); }
 - (void)onAimFov:(UISlider*)s       { RavenAimbot::setFov(s.value); }
 - (void)onAimSmooth:(UISlider*)s    { RavenAimbot::setSmooth(s.value); }
@@ -1133,4 +1092,4 @@ static UILabel* mkLabel(NSString* text, CGFloat size, UIColor* color, BOOL bold)
 @end
 """)
 
-print("done - Raven tabbed UI")
+print("done - Raven with imgur logo URLs")
