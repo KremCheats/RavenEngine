@@ -46,6 +46,10 @@ static void raven_entry(void) {
 w("Src/Common.h", r"""
 #ifndef RAVEN_COMMON_H
 #define RAVEN_COMMON_H
+
+#include <cstdint>
+#include <cstddef>
+
 #import <Foundation/Foundation.h>
 #import <os/log.h>
 
@@ -54,11 +58,10 @@ w("Src/Common.h", r"""
 struct Vec3 { float x, y, z; };
 struct Matrix4x4 { float m[16]; };
 
-// ---- Raven brand ----
-#define RAVEN_RED    [UIColor colorWithRed:0.769 green:0.118 blue:0.118 alpha:1.0]  // #C41E1E
-#define RAVEN_SILVER [UIColor colorWithRed:0.910 green:0.910 blue:0.910 alpha:1.0]  // #E8E8E8
-#define RAVEN_BG     [UIColor colorWithRed:0.039 green:0.039 blue:0.039 alpha:0.95] // #0A0A0A
-#define RAVEN_DARK   [UIColor colorWithRed:0.102 green:0.102 blue:0.102 alpha:1.0]  // #1A1A1A
+#define RAVEN_RED    [UIColor colorWithRed:0.769 green:0.118 blue:0.118 alpha:1.0]
+#define RAVEN_SILVER [UIColor colorWithRed:0.910 green:0.910 blue:0.910 alpha:1.0]
+#define RAVEN_BG     [UIColor colorWithRed:0.039 green:0.039 blue:0.039 alpha:0.95]
+#define RAVEN_DARK   [UIColor colorWithRed:0.102 green:0.102 blue:0.102 alpha:1.0]
 
 #endif
 """)
@@ -67,27 +70,20 @@ w("Src/GameData.h", r"""
 #ifndef RAVEN_GAMEDATA_H
 #define RAVEN_GAMEDATA_H
 
-// ==================================================================
-// FILL THESE IN FROM: https://github.com/AnzeLaCM/CombatMaster-Full-Offsets
-// The names below are educated guesses. Run a dumper or read the
-// offsets repo README to confirm each one for the current build.
-// ==================================================================
+#include <cstdint>
 
 namespace GameData {
 
-    // ---- Class names ----
-    static const char* kLocalPlayerClass = "PlayerRoot";     // TODO confirm
-    static const char* kPlayerListClass  = "PlayerManager";  // TODO confirm
-    static const char* kCameraClass      = "Camera";         // usually "Camera"
-    static const char* kGameClass        = "GameManager";    // TODO confirm
+    static const char* kLocalPlayerClass = "PlayerRoot";
+    static const char* kPlayerListClass  = "PlayerManager";
+    static const char* kCameraClass      = "Camera";
+    static const char* kGameClass        = "GameManager";
 
-    // ---- Method names ----
     static const char* kGetInstance     = "get_Instance";
-    static const char* kGetLocalPlayer  = "get_LocalPlayer"; // TODO confirm
-    static const char* kGetAllPlayers   = "get_AllPlayers";  // TODO confirm
+    static const char* kGetLocalPlayer  = "get_LocalPlayer";
+    static const char* kGetAllPlayers   = "get_AllPlayers";
     static const char* kGetMainCamera   = "get_main";
 
-    // ---- Field names (used with IL2CPP::field) ----
     static const char* kFldHealth       = "Health";
     static const char* kFldArmor        = "Armor";
     static const char* kFldPosition     = "Position";
@@ -96,11 +92,8 @@ namespace GameData {
     static const char* kFldIsLocal      = "IsLocalPlayer";
     static const char* kFldName         = "PlayerName";
 
-    // ---- List field (on kPlayerListClass) ----
-    static const char* kFldPlayerList   = "AllPlayers";      // TODO confirm
+    static const char* kFldPlayerList   = "AllPlayers";
 
-    // ---- Field offsets — FILL FROM THE OFFSETS REPO ----
-    // All values below are placeholders. Replace with actual hex.
     namespace Off {
         constexpr uint32_t Health      = 0x0;
         constexpr uint32_t Armor       = 0x0;
@@ -109,15 +102,14 @@ namespace GameData {
         constexpr uint32_t IsVisible   = 0x0;
         constexpr uint32_t IsLocal     = 0x0;
 
-        constexpr uint32_t ListCount   = 0x18;  // List<T> size field, usually 0x18
-        constexpr uint32_t ListItems   = 0x10;  // List<T> items pointer, usually 0x10
-        constexpr uint32_t ArrayData   = 0x20;  // first element of object[]
+        constexpr uint32_t ListCount   = 0x18;
+        constexpr uint32_t ListItems   = 0x10;
+        constexpr uint32_t ArrayData   = 0x20;
 
         constexpr uint32_t ViewMatrix  = 0x0;
         constexpr uint32_t ProjMatrix  = 0x0;
     }
 
-    // ---- Bone indices (HumanBodyBones) ----
     namespace Bone {
         constexpr int Head   = 11;
         constexpr int Neck   = 12;
@@ -133,20 +125,6 @@ w("Src/Logos.h", r"""
 #ifndef RAVEN_LOGOS_H
 #define RAVEN_LOGOS_H
 
-// ==================================================================
-// Paste base64 of your two logos between the quotes below.
-// If left empty, the UI falls back to a drawn ball and text header.
-//
-// How to generate base64 on iPhone:
-//   1. Open Shortcuts app
-//   2. New shortcut: "Encode Image"
-//   3. Actions: Get File → Base64 Encode (Line Breaks: None) → Copy to Clipboard
-//   4. Run it, pick your logo file, paste here.
-//
-// Ball logo   = the round KREM target/crest image
-// Header logo = the horizontal KREM CHEATS banner
-// ==================================================================
-
 static const char* kBallLogoB64   = "";
 static const char* kHeaderLogoB64 = "";
 
@@ -156,9 +134,11 @@ static const char* kHeaderLogoB64 = "";
 w("Src/IL2CPP.h", r"""
 #ifndef RAVEN_IL2CPP_H
 #define RAVEN_IL2CPP_H
+
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "Common.h"
 
 namespace IL2CPP {
 
@@ -174,7 +154,6 @@ namespace IL2CPP {
     void* invoke(void* method, void* obj, void** params);
     void* newObject(void* klass);
 
-    // Raw pointer read/write by offset
     template<typename T>
     inline T read(void* obj, uint32_t offset) {
         if (!obj) return T{};
@@ -187,11 +166,9 @@ namespace IL2CPP {
         *(T*)((uintptr_t)obj + offset) = value;
     }
 
-    // Read a Unity List<T> at a given field on the object
     void* readListItems(void* obj, uint32_t itemsOffset);
     int   readListCount(void* obj, uint32_t countOffset);
 
-    // Camera
     Matrix4x4 getViewProjection();
 }
 #endif
@@ -202,13 +179,13 @@ w("Src/IL2CPP.mm", r"""
 #import "Common.h"
 #import "GameData.h"
 #import <dlfcn.h>
-#import <string.h>
+#import <cstdio>
+#import <cstring>
 #import <mach-o/dyld.h>
 #import <mach-o/loader.h>
 
 namespace IL2CPP {
 
-// ---------- API typedefs ----------
 typedef void*   (*t_domain_get)();
 typedef void*   (*t_thread_attach)(void*);
 typedef void*   (*t_domain_assembly_open)(void*, const char*);
@@ -239,7 +216,6 @@ static uintptr_t g_base = 0;
 static void* rs(const char* n) { return dlsym(RTLD_DEFAULT, n); }
 
 bool init() {
-    // Locate the Unity image
     uint32_t n = _dyld_image_count();
     for (uint32_t i = 0; i < n; i++) {
         const char* nm = _dyld_get_image_name(i);
@@ -324,7 +300,6 @@ int readListCount(void* obj, uint32_t countOffset) {
     return *(int*)((uintptr_t)obj + countOffset);
 }
 
-// Unity camera matrix read — Camera.main.projectionMatrix * Camera.main.worldToCameraMatrix
 Matrix4x4 getViewProjection() {
     Matrix4x4 out = {0};
     void* camK = klass("", GameData::kCameraClass);
@@ -337,7 +312,6 @@ Matrix4x4 getViewProjection() {
     Matrix4x4 proj = *(Matrix4x4*)((uintptr_t)cam + GameData::Off::ProjMatrix);
     Matrix4x4 view = *(Matrix4x4*)((uintptr_t)cam + GameData::Off::ViewMatrix);
 
-    // out = proj * view
     for (int r = 0; r < 4; r++) {
         for (int c = 0; c < 4; c++) {
             float s = 0;
@@ -367,6 +341,7 @@ w("Src/ESP.h", r"""
 
 + (instancetype)shared;
 - (void)attach;
+- (void)attachToScene;
 - (void)begin;
 - (void)end;
 - (void)render;
@@ -428,18 +403,15 @@ w("Src/ESP.mm", r"""
 
 - (void)attachToScene {
     if (!self.window) return;
-    UIWindowScene *scene = nil;
     for (UIScene *s in [UIApplication sharedApplication].connectedScenes) {
         if ([s isKindOfClass:[UIWindowScene class]]) {
             if (s.activationState == UISceneActivationStateForegroundActive ||
                 s.activationState == UISceneActivationStateForegroundInactive) {
-                scene = (UIWindowScene *)s; break;
+                self.window.windowScene = (UIWindowScene *)s;
+                self.window.hidden = NO;
+                return;
             }
         }
-    }
-    if (scene) {
-        self.window.windowScene = scene;
-        self.window.hidden = NO;
     }
 }
 
@@ -471,9 +443,8 @@ w("Src/ESP.mm", r"""
 }
 
 - (void)render {
-    // Called by the menu when Engine is on.
-    // Full implementation depends on the offsets in GameData.h.
 }
+
 @end
 """)
 
@@ -484,10 +455,9 @@ w("Src/Aimbot.h", r"""
 
 namespace RavenAimbot {
     void setEnabled(bool on);
-    void setBone(int boneIdx);      // 11 = head, 12 = neck, 20 = chest
-    void setSmooth(float amount);    // 1.0 = instant, higher = smoother
-    void setFov(float radiusPx);     // pixels on screen
-
+    void setBone(int boneIdx);
+    void setSmooth(float amount);
+    void setFov(float radiusPx);
     void tick();
 }
 #endif
@@ -512,9 +482,6 @@ void setFov(float r)     { g_fov = r; }
 
 void tick() {
     if (!g_on) return;
-    // Called every frame by the menu tick.
-    // Full implementation needs: local player pointer, player list, camera,
-    // and bone world positions. All read via GameData offsets.
 }
 }
 """)
@@ -541,9 +508,6 @@ w("Src/Menu.mm", r"""
 #import "Aimbot.h"
 #import "IL2CPP.h"
 
-// ============================================================
-// Helpers
-// ============================================================
 static UIImage* decodeB64(const char* b64) {
     if (!b64 || !*b64) return nil;
     NSString* s = [NSString stringWithUTF8String:b64];
@@ -552,15 +516,13 @@ static UIImage* decodeB64(const char* b64) {
     return d ? [UIImage imageWithData:d] : nil;
 }
 
-@interface RavenMenu () <UIGestureRecognizerDelegate>
+@interface RavenMenu ()
 @property (nonatomic, strong) UIWindow *window;
 @property (nonatomic, strong) UIView   *ball;
 @property (nonatomic, strong) UIView   *panel;
 @property (nonatomic, assign) BOOL      panelOpen;
 @property (nonatomic, assign) BOOL      engineOn;
 @property (nonatomic, strong) NSTimer  *tickTimer;
-@property (nonatomic, assign) CGPoint   ballStart;
-@property (nonatomic, assign) CGPoint   panelStart;
 @end
 
 @implementation RavenMenu
@@ -590,7 +552,6 @@ static UIImage* decodeB64(const char* b64) {
     [self.window addSubview:self.panel];
     self.panel.hidden = YES;
 
-    // 60 Hz tick that runs aimbot + ESP refresh
     self.tickTimer = [NSTimer scheduledTimerWithTimeInterval:1.0/60.0
                                                       target:self
                                                     selector:@selector(onTick)
@@ -606,7 +567,7 @@ static UIImage* decodeB64(const char* b64) {
             if (s.activationState == UISceneActivationStateForegroundActive ||
                 s.activationState == UISceneActivationStateForegroundInactive) {
                 self.window.windowScene = (UIWindowScene *)s;
-                break;
+                return;
             }
         }
     }
@@ -614,9 +575,6 @@ static UIImage* decodeB64(const char* b64) {
 
 - (void)setVisible:(BOOL)v { self.window.hidden = !v; }
 
-// ============================================================
-// Ball
-// ============================================================
 - (void)buildBall {
     CGFloat size = 56.0;
     CGFloat x = [UIScreen mainScreen].bounds.size.width - size - 20;
@@ -644,12 +602,11 @@ static UIImage* decodeB64(const char* b64) {
         UILabel *l = [[UILabel alloc] initWithFrame:self.ball.bounds];
         l.text = @"R";
         l.textAlignment = NSTextAlignmentCenter;
-        l.font = [UIFont fontWithName:@"AvenirNext-Bold" size:26] ?: [UIFont boldSystemFontOfSize:26];
+        l.font = [UIFont boldSystemFontOfSize:26];
         l.textColor = RAVEN_RED;
         [self.ball addSubview:l];
     }
 
-    // tap toggles panel; drag moves ball
     UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(togglePanel)];
     UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(dragBall:)];
     [self.ball addGestureRecognizer:tap];
@@ -667,9 +624,6 @@ static UIImage* decodeB64(const char* b64) {
     [g setTranslation:CGPointZero inView:self.window];
 }
 
-// ============================================================
-// Panel
-// ============================================================
 - (UIView*)makeRowWithLabel:(NSString*)text control:(UIView*)ctrl {
     UIView *row = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 260, 34)];
     UILabel *l = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 140, 34)];
@@ -715,7 +669,6 @@ static UIImage* decodeB64(const char* b64) {
     self.panel.layer.shadowRadius = 16;
     self.panel.layer.shadowOffset = CGSizeMake(0, 6);
 
-    // Header with logo
     UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, W, 80)];
     header.backgroundColor = [RAVEN_DARK colorWithAlphaComponent:0.9];
     header.layer.cornerRadius = 14;
@@ -732,11 +685,11 @@ static UIImage* decodeB64(const char* b64) {
         t.text = @"RAVEN";
         t.textAlignment = NSTextAlignmentCenter;
         t.textColor = RAVEN_RED;
-        t.font = [UIFont fontWithName:@"AvenirNext-Bold" size:22] ?: [UIFont boldSystemFontOfSize:22];
+        t.font = [UIFont boldSystemFontOfSize:22];
         [header addSubview:t];
     }
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(0, 54, W, 18)];
-    ver.text = @"v1  ·  @Kremityss";
+    ver.text = @"v1 - @Kremityss";
     ver.textAlignment = NSTextAlignmentCenter;
     ver.textColor = RAVEN_SILVER;
     ver.font = [UIFont systemFontOfSize:10 weight:UIFontWeightLight];
@@ -744,16 +697,14 @@ static UIImage* decodeB64(const char* b64) {
 
     [self.panel addSubview:header];
 
-    // Close button
     UIButton *close = [UIButton buttonWithType:UIButtonTypeSystem];
     close.frame = CGRectMake(W - 44, 10, 34, 34);
-    [close setTitle:@"✕" forState:UIControlStateNormal];
+    [close setTitle:@"X" forState:UIControlStateNormal];
     [close setTitleColor:RAVEN_RED forState:UIControlStateNormal];
     close.titleLabel.font = [UIFont systemFontOfSize:20 weight:UIFontWeightBold];
     [close addTarget:self action:@selector(togglePanel) forControlEvents:UIControlEventTouchUpInside];
     [self.panel addSubview:close];
 
-    // Scrollable content
     UIScrollView *sv = [[UIScrollView alloc] initWithFrame:CGRectMake(10, 90, W - 20, H - 100)];
     sv.showsVerticalScrollIndicator = NO;
 
@@ -777,7 +728,6 @@ static UIImage* decodeB64(const char* b64) {
     sv.contentSize = CGSizeMake(W - 20, yOff + 20);
     [self.panel addSubview:sv];
 
-    // Drag panel via header
     UIPanGestureRecognizer *pp = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(dragPanel:)];
     [header addGestureRecognizer:pp];
 }
@@ -788,9 +738,6 @@ static UIImage* decodeB64(const char* b64) {
     [g setTranslation:CGPointZero inView:self.window];
 }
 
-// ============================================================
-// Switch / slider actions
-// ============================================================
 - (void)onEngine:(UISwitch*)s {
     self.engineOn = s.on;
     if (s.on) { [[RavenESP shared] begin]; }
@@ -814,4 +761,4 @@ static UIImage* decodeB64(const char* b64) {
 @end
 """)
 
-print("done — Raven v1 project written")
+print("done - Raven v1 written")
