@@ -825,7 +825,7 @@ w("Src/Menu.mm", r"""
 
 static const CGFloat kRefW       = 860;
 static const CGFloat kRefH       = 500;
-static const CGFloat kHeaderH    = 108;
+static const CGFloat kHeaderH    = 84;
 static const CGFloat kFooterH    = 28;
 static const CGFloat kSidebarW   = 168;
 static const CGFloat kPad        = 18;
@@ -883,6 +883,23 @@ static void loadLogoURLAsync(const char* url, ImgBlock cb) {
         });
     }];
     [task resume];
+}
+
+static UIImage* cropNormalized(UIImage* img, CGRect n) {
+    if (!img || !img.CGImage) return img;
+    size_t w = CGImageGetWidth(img.CGImage);
+    size_t h = CGImageGetHeight(img.CGImage);
+    CGRect px = CGRectMake(n.origin.x * w,
+                           n.origin.y * h,
+                           n.size.width * w,
+                           n.size.height * h);
+    px = CGRectIntersection(px, CGRectMake(0, 0, w, h));
+    if (CGRectIsEmpty(px)) return img;
+    CGImageRef cg = CGImageCreateWithImageInRect(img.CGImage, px);
+    if (!cg) return img;
+    UIImage* out = [UIImage imageWithCGImage:cg scale:img.scale orientation:img.imageOrientation];
+    CGImageRelease(cg);
+    return out;
 }
 
 static UILabel* lbl(NSString* t, CGFloat sz, UIColor* c, BOOL bold) {
@@ -1389,10 +1406,15 @@ static void forceLandscape(void) {
     [self.headerView addSubview:line];
 
     CGFloat controlsW = 96;
-    CGFloat bannerX = 12;
-    CGFloat bannerY = 8;
-    CGFloat bannerW = r.size.width - controlsW - bannerX - 12;
-    CGFloat bannerH = r.size.height - 16;
+    CGFloat bannerY = 6;
+    CGFloat bannerH = r.size.height - 12;
+
+    // The source header asset contains large black padding above/below the
+    // actual banner. Size the visible banner by the cropped artwork ratio.
+    CGFloat artAspect = 6.43;
+    CGFloat maxBannerW = r.size.width - controlsW - 28;
+    CGFloat bannerW = MIN(maxBannerW, bannerH * artAspect);
+    CGFloat bannerX = MAX(14, (r.size.width - controlsW - bannerW) / 2.0);
 
     UIImageView* wm = [[UIImageView alloc] initWithFrame:CGRectMake(bannerX, bannerY, bannerW, bannerH)];
     wm.contentMode = UIViewContentModeScaleAspectFit;
@@ -1411,7 +1433,9 @@ static void forceLandscape(void) {
     __weak UILabel* weakFB = fallback;
     loadLogoURLAsync(kWordmarkURL, ^(UIImage* img) {
         if (!img) return;
-        weakWM.image = img;
+        // Crop away the black canvas from Cnzjdjh.png so the actual
+        // RAVEN banner fills the header instead of appearing as a thumbnail.
+        weakWM.image = cropNormalized(img, CGRectMake(0.0, 0.286, 1.0, 0.364));
         weakWM.hidden = NO;
         weakFB.hidden = YES;
     });
@@ -1478,23 +1502,18 @@ static void forceLandscape(void) {
 
     __weak UIImageView* weakBG = bg;
     loadLogoURLAsync(kEmblemURL, ^(UIImage* img) {
-        if (img) weakBG.image = img;
+        if (!img) return;
+        // vLJmsVo.png has wide black margins around the real vertical art.
+        // Crop to the bordered artwork before AspectFill so it fills the
+        // entire sidebar instead of looking like a poster inside a black box.
+        weakBG.image = cropNormalized(img, CGRectMake(0.267, 0.016, 0.465, 0.955));
     });
 
+    // Keep only a light readability tint. The source artwork is already dark.
     UIView* tint = [[UIView alloc] initWithFrame:self.sidebarView.bounds];
-    tint.backgroundColor = [UIColor colorWithRed:0.02 green:0.02 blue:0.04 alpha:0.35];
+    tint.backgroundColor = [UIColor colorWithRed:0.02 green:0.02 blue:0.04 alpha:0.14];
     tint.userInteractionEnabled = NO;
     [self.sidebarView addSubview:tint];
-
-    CAGradientLayer* topFade = [CAGradientLayer layer];
-    topFade.frame = CGRectMake(0, 0, r.size.width, r.size.height * 0.6);
-    topFade.colors = @[
-        (id)[UIColor colorWithRed:0.02 green:0.02 blue:0.04 alpha:0.75].CGColor,
-        (id)[UIColor colorWithRed:0.02 green:0.02 blue:0.04 alpha:0.0].CGColor
-    ];
-    topFade.startPoint = CGPointMake(0.5, 0.0);
-    topFade.endPoint = CGPointMake(0.5, 1.0);
-    [self.sidebarView.layer addSublayer:topFade];
 
     UIView* sep = [[UIView alloc] initWithFrame:CGRectMake(r.size.width - 1, 0, 1, r.size.height)];
     sep.backgroundColor = C_BORDER;
@@ -1529,15 +1548,8 @@ static void forceLandscape(void) {
         y += kTabH + 4;
     }
 
-    UILabel* motto = [[UILabel alloc] initWithFrame:CGRectMake(0, r.size.height - 42, r.size.width, 30)];
-    motto.text = @"SEE MORE.\nBE BETTER.";
-    motto.numberOfLines = 2;
-    motto.textAlignment = NSTextAlignmentCenter;
-    motto.textColor = C_RED;
-    motto.font = [UIFont systemFontOfSize:10 weight:UIFontWeightBold];
-    motto.backgroundColor = [UIColor clearColor];
-    motto.alpha = 0.9;
-    [self.sidebarView addSubview:motto];
+    // The sidebar artwork already contains the SEE MORE. BE BETTER. motto.
+    // Do not draw a duplicate text label over the asset.
 
     [self.panelInner addSubview:self.sidebarView];
 }
