@@ -26,12 +26,12 @@ jobs:
       - name: Collect
         run: |
           mkdir -p dist
-          SRC=$(find .theos/obj -name Dumper.dylib | head -n1)
+          SRC=$(find .theos/obj -name Raven.dylib | head -n1)
           [ -n "$SRC" ] || { echo "no dylib produced"; find .theos -name "*.dylib" | head; exit 1; }
-          cp "$SRC" dist/Dumper.dylib
-          lipo -info dist/Dumper.dylib
+          cp "$SRC" dist/Raven.dylib
+          lipo -info dist/Raven.dylib
       - uses: actions/upload-artifact@v4
         with:
-          name: Dumper-dylib
-          path: dist/Dumper.dylib
+          name: Raven-dylib
+          path: dist/Raven.dylib
           if-no-files-found: error
