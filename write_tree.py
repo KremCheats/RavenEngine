@@ -1111,6 +1111,7 @@ static void forceLandscape(void) {
 @property (nonatomic, assign) CGFloat uiScale;
 @property (nonatomic, assign) CGSize  lastBounds;
 @property (nonatomic, assign) CGRect  dragStartFrame;
+@property (nonatomic, assign) BOOL    hasPanelPosition;
 @end
 
 @implementation RavenMenu
@@ -1134,6 +1135,7 @@ static void forceLandscape(void) {
     self.activeTab     = 0;
     self.uiScale       = 1.0;
     self.lastBounds    = CGSizeZero;
+    self.hasPanelPosition = NO;
 
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         loadCachedImage(kWordmarkURL);
@@ -1222,18 +1224,26 @@ static void forceLandscape(void) {
     CGFloat usableW = screen.size.width - safe.left - safe.right;
     CGFloat usableH = screen.size.height - safe.top - safe.bottom;
 
-    CGFloat fit = MIN(usableW / kRefW, usableH / kRefH);
-    fit = MIN(fit, kScaleMax);
-    fit = MAX(fit, kScaleFloor);
+    // Menu Scale is a real UI scale now. The requested scale is always
+    // capped by the largest size that fully fits inside the safe area.
+    CGFloat requestedScale = MAX(0.50, MIN(1.50, RavenSettings::menuScale / 100.0));
+    CGFloat safeFit = MIN(usableW / kRefW, usableH / kRefH);
+    CGFloat fit = MIN(requestedScale, safeFit);
     self.uiScale = fit;
 
     CGFloat panelW = kRefW * fit;
     CGFloat panelH = kRefH * fit;
-    if (panelW > usableW) panelW = usableW;
-    if (panelH > usableH) panelH = usableH;
 
-    CGFloat panelX = safe.left + (usableW - panelW) / 2;
-    CGFloat panelY = safe.top  + (usableH - panelH) / 2;
+    // Preserve the user's current position while resizing. First layout stays centered.
+    CGPoint oldCenter = self.panel ? self.panel.center
+                                   : CGPointMake(safe.left + usableW / 2.0,
+                                                 safe.top + usableH / 2.0);
+    CGFloat panelX = safe.left + (usableW - panelW) / 2.0;
+    CGFloat panelY = safe.top  + (usableH - panelH) / 2.0;
+    if (self.hasPanelPosition && self.panel) {
+        panelX = oldCenter.x - panelW / 2.0;
+        panelY = oldCenter.y - panelH / 2.0;
+    }
 
     self.panel.transform = CGAffineTransformIdentity;
     self.panel.frame = CGRectMake(panelX, panelY, panelW, panelH);
@@ -1344,7 +1354,9 @@ static void forceLandscape(void) {
 - (void)togglePanel {
     self.panelOpen = !self.panelOpen;
     if (self.panelOpen) {
-        [self centerPanel];
+        [self relayout];
+        if (!self.hasPanelPosition) [self centerPanel];
+        [self clampPanel];
         self.panel.hidden = NO;
         self.ball.hidden  = YES;
         [self.window bringSubviewToFront:self.panel];
@@ -1463,11 +1475,16 @@ static void forceLandscape(void) {
 - (void)onHeaderDrag:(UIPanGestureRecognizer*)g {
     if (g.state == UIGestureRecognizerStateBegan) {
         self.dragStartFrame = self.panel.frame;
+        self.hasPanelPosition = YES;
     } else if (g.state == UIGestureRecognizerStateChanged) {
         CGPoint t = [g translationInView:self.window];
         CGRect f = self.dragStartFrame;
-        f.origin.x += t.x; f.origin.y += t.y;
+        f.origin.x += t.x;
+        f.origin.y += t.y;
         self.panel.frame = f;
+        [self clampPanel];
+    } else if (g.state == UIGestureRecognizerStateEnded ||
+               g.state == UIGestureRecognizerStateCancelled) {
         [self clampPanel];
     }
 }
@@ -1892,7 +1909,11 @@ static void forceLandscape(void) {
         NSString* rvStr = [NSString stringWithUTF8String:rv.c_str()];
 
         UIView* iface = [self card:@"INTERFACE" width:w rows:@[
-            [self rowSlider:@"Menu Scale" min:50 max:150 val:RavenSettings::menuScale cb:^(float v){ RavenSettings::menuScale = v; }],
+            [self rowSlider:@"Menu Scale" min:50 max:150 val:RavenSettings::menuScale cb:^(float v){
+                RavenSettings::menuScale = v;
+                [self relayout];
+                [self clampPanel];
+            }],
             [self rowDropdown:@"Accent Color" value:@"Crimson"],
             [self rowToggle:@"Animations" on:RavenSettings::animations cb:^(BOOL v){ RavenSettings::animations = v; }],
         ]];
