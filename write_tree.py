@@ -989,13 +989,9 @@ static void*  g_transformClass = nullptr;
 static void*  g_cameraClass = nullptr;
 
 static void*  g_playerTransformGetter = nullptr;
-
 static bool   g_resolved = false;
-
 static void resolveHandles(void) {
     if (g_resolved) return;
-    g_resolved = true;
-
     void* img = IL2CPP::gameImage();
     if (!img) return;
 
@@ -1021,6 +1017,8 @@ static void resolveHandles(void) {
     if (g_cameraCtrlClass) {
         g_getRenderCamera = IL2CPP::resolveMethod(g_cameraCtrlClass, GameData::kMGetRenderCamera, 0);
     }
+    g_resolved = (g_playerRootClass && g_cameraCtrlClass && g_getTeamId &&
+                  g_getActiveMobView && g_getRenderCamera);
 }
 
 static void ensureTransformHandles(void* transformObj) {
@@ -1139,6 +1137,7 @@ static bool worldToScreen(void* camera, Vec3 world, CGPoint* out) {
     [self.window.layer addSublayer:self.boxes];
     [self.window.layer addSublayer:self.lines];
     [self.window.layer addSublayer:self.labels];
+    [self attachToScene];
 }
 
 - (void)attachToScene {
@@ -1183,6 +1182,9 @@ static bool worldToScreen(void* camera, Vec3 world, CGPoint* out) {
 
 - (void)render {
     if (!RavenSettings::espEnabled) return;
+    if (!self.window) [self attach];
+    [self attachToScene];
+    self.window.hidden = NO;
     resolveHandles();
     if (!g_playerRootClass) return;
 
@@ -1308,11 +1310,8 @@ static void* g_cameraClass         = nullptr;
 static void* g_worldToScreen       = nullptr;
 static void* g_getRootTransform    = nullptr;
 static bool  g_resolved            = false;
-
 static void resolveHandles(void) {
     if (g_resolved) return;
-    g_resolved = true;
-
     void* img = IL2CPP::gameImage();
     if (!img) return;
 
@@ -1327,6 +1326,8 @@ static void resolveHandles(void) {
     if (g_cameraCtrlClass) {
         g_getRenderCamera  = IL2CPP::resolveMethod(g_cameraCtrlClass, GameData::kMGetRenderCamera, 0);
     }
+    g_resolved = (g_playerRootClass && g_cameraCtrlClass && g_getTeamId &&
+                  g_getActiveMobView && g_getRenderCamera);
 }
 
 static void ensureTransformClass(void* obj) {
