@@ -353,6 +353,52 @@ void load() {
     uiOpenButton    = (int)[d integerForKey:kKey(@"ui.openButton")];
     uiPosition      = (int)[d integerForKey:kKey(@"ui.position")];
     animations      = [d objectForKey:kKey(@"ui.animations")] ? [d boolForKey:kKey(@"ui.animations")] : YES;
+
+    aimMaxDist = [d objectForKey:kKey(@"aim.maxDist")] ? [d floatForKey:kKey(@"aim.maxDist")] : aimMaxDist;
+    aimPrediction = [d objectForKey:kKey(@"aim.prediction")] ? [d boolForKey:kKey(@"aim.prediction")] : aimPrediction;
+    aimVisCheck = [d objectForKey:kKey(@"aim.visCheck")] ? [d boolForKey:kKey(@"aim.visCheck")] : aimVisCheck;
+    aimDelay = [d objectForKey:kKey(@"aim.delay")] ? [d floatForKey:kKey(@"aim.delay")] : aimDelay;
+    aimSwitchDelay = [d objectForKey:kKey(@"aim.switchDelay")] ? [d floatForKey:kKey(@"aim.switchDelay")] : aimSwitchDelay;
+    aimShowCircle = [d objectForKey:kKey(@"aim.showCircle")] ? [d boolForKey:kKey(@"aim.showCircle")] : aimShowCircle;
+    aimCircleRadius = [d objectForKey:kKey(@"aim.circleRadius")] ? [d floatForKey:kKey(@"aim.circleRadius")] : aimCircleRadius;
+    aimCircleThickness = [d objectForKey:kKey(@"aim.circleThickness")] ? [d floatForKey:kKey(@"aim.circleThickness")] : aimCircleThickness;
+    espBox = [d objectForKey:kKey(@"esp.box")] ? [d boolForKey:kKey(@"esp.box")] : espBox;
+    espCorner = [d objectForKey:kKey(@"esp.corner")] ? [d boolForKey:kKey(@"esp.corner")] : espCorner;
+    espSkeleton = [d objectForKey:kKey(@"esp.skeleton")] ? [d boolForKey:kKey(@"esp.skeleton")] : espSkeleton;
+    espSnaplines = [d objectForKey:kKey(@"esp.snaplines")] ? [d boolForKey:kKey(@"esp.snaplines")] : espSnaplines;
+    espName = [d objectForKey:kKey(@"esp.name")] ? [d boolForKey:kKey(@"esp.name")] : espName;
+    espDistance = [d objectForKey:kKey(@"esp.distance")] ? [d boolForKey:kKey(@"esp.distance")] : espDistance;
+    espHealth = [d objectForKey:kKey(@"esp.health")] ? [d boolForKey:kKey(@"esp.health")] : espHealth;
+    espWeapon = [d objectForKey:kKey(@"esp.weapon")] ? [d boolForKey:kKey(@"esp.weapon")] : espWeapon;
+    visCrosshair = [d objectForKey:kKey(@"vis.crosshair")] ? [d boolForKey:kKey(@"vis.crosshair")] : visCrosshair;
+    visCrosshairSize = [d objectForKey:kKey(@"vis.crosshairSize")] ? [d floatForKey:kKey(@"vis.crosshairSize")] : visCrosshairSize;
+    visCrosshairThickness = [d objectForKey:kKey(@"vis.crosshairThickness")] ? [d floatForKey:kKey(@"vis.crosshairThickness")] : visCrosshairThickness;
+    visFovCircle = [d objectForKey:kKey(@"vis.fovCircle")] ? [d boolForKey:kKey(@"vis.fovCircle")] : visFovCircle;
+    visFovRadius = [d objectForKey:kKey(@"vis.fovRadius")] ? [d floatForKey:kKey(@"vis.fovRadius")] : visFovRadius;
+    visFovThickness = [d objectForKey:kKey(@"vis.fovThickness")] ? [d floatForKey:kKey(@"vis.fovThickness")] : visFovThickness;
+    visRemoveFog = [d objectForKey:kKey(@"vis.removeFog")] ? [d boolForKey:kKey(@"vis.removeFog")] : visRemoveFog;
+    visNightMode = [d objectForKey:kKey(@"vis.nightMode")] ? [d boolForKey:kKey(@"vis.nightMode")] : visNightMode;
+    visBrightnessBoost = [d objectForKey:kKey(@"vis.brightnessBoost")] ? [d boolForKey:kKey(@"vis.brightnessBoost")] : visBrightnessBoost;
+    visBrightness = [d objectForKey:kKey(@"vis.brightness")] ? [d floatForKey:kKey(@"vis.brightness")] : visBrightness;
+    visNoFlash = [d objectForKey:kKey(@"vis.noFlash")] ? [d boolForKey:kKey(@"vis.noFlash")] : visNoFlash;
+    visNoSmoke = [d objectForKey:kKey(@"vis.noSmoke")] ? [d boolForKey:kKey(@"vis.noSmoke")] : visNoSmoke;
+    visBetterTextures = [d objectForKey:kKey(@"vis.betterTextures")] ? [d boolForKey:kKey(@"vis.betterTextures")] : visBetterTextures;
+    wpnNoRecoil = [d objectForKey:kKey(@"wpn.noRecoil")] ? [d boolForKey:kKey(@"wpn.noRecoil")] : wpnNoRecoil;
+    wpnNoSpread = [d objectForKey:kKey(@"wpn.noSpread")] ? [d boolForKey:kKey(@"wpn.noSpread")] : wpnNoSpread;
+    wpnRecoilStrength = [d objectForKey:kKey(@"wpn.recoilStrength")] ? [d floatForKey:kKey(@"wpn.recoilStrength")] : wpnRecoilStrength;
+    wpnFastReload = [d objectForKey:kKey(@"wpn.fastReload")] ? [d boolForKey:kKey(@"wpn.fastReload")] : wpnFastReload;
+    wpnRapidFire = [d objectForKey:kKey(@"wpn.rapidFire")] ? [d boolForKey:kKey(@"wpn.rapidFire")] : wpnRapidFire;
+    wpnFireRate = [d objectForKey:kKey(@"wpn.fireRate")] ? [d floatForKey:kKey(@"wpn.fireRate")] : wpnFireRate;
+    wpnNoFlash = [d objectForKey:kKey(@"wpn.noFlash")] ? [d boolForKey:kKey(@"wpn.noFlash")] : wpnNoFlash;
+    wpnNoSmoke = [d objectForKey:kKey(@"wpn.noSmoke")] ? [d boolForKey:kKey(@"wpn.noSmoke")] : wpnNoSmoke;
+    wpnNoShells = [d objectForKey:kKey(@"wpn.noShells")] ? [d boolForKey:kKey(@"wpn.noShells")] : wpnNoShells;
+    miscBunnyHop = [d objectForKey:kKey(@"misc.bunnyHop")] ? [d boolForKey:kKey(@"misc.bunnyHop")] : miscBunnyHop;
+    miscAutoStrafe = [d objectForKey:kKey(@"misc.autoStrafe")] ? [d boolForKey:kKey(@"misc.autoStrafe")] : miscAutoStrafe;
+    miscNoFallDamage = [d objectForKey:kKey(@"misc.noFallDamage")] ? [d boolForKey:kKey(@"misc.noFallDamage")] : miscNoFallDamage;
+    miscUnlockAll = [d objectForKey:kKey(@"misc.unlockAll")] ? [d boolForKey:kKey(@"misc.unlockAll")] : miscUnlockAll;
+    miscNoAds = [d objectForKey:kKey(@"misc.noAds")] ? [d boolForKey:kKey(@"misc.noAds")] : miscNoAds;
+    miscPanicKey = [d objectForKey:kKey(@"misc.panicKey")] ? [d boolForKey:kKey(@"misc.panicKey")] : miscPanicKey;
+    miscHideWhenClosed = [d objectForKey:kKey(@"misc.hideWhenClosed")] ? [d boolForKey:kKey(@"misc.hideWhenClosed")] : miscHideWhenClosed;
 }
 
 void save() {
@@ -376,6 +422,51 @@ void save() {
     [d setInteger:uiOpenButton forKey:kKey(@"ui.openButton")];
     [d setInteger:uiPosition forKey:kKey(@"ui.position")];
     [d setBool:animations forKey:kKey(@"ui.animations")];
+    [d setFloat:aimMaxDist forKey:kKey(@"aim.maxDist")];
+    [d setBool:aimPrediction forKey:kKey(@"aim.prediction")];
+    [d setBool:aimVisCheck forKey:kKey(@"aim.visCheck")];
+    [d setFloat:aimDelay forKey:kKey(@"aim.delay")];
+    [d setFloat:aimSwitchDelay forKey:kKey(@"aim.switchDelay")];
+    [d setBool:aimShowCircle forKey:kKey(@"aim.showCircle")];
+    [d setFloat:aimCircleRadius forKey:kKey(@"aim.circleRadius")];
+    [d setFloat:aimCircleThickness forKey:kKey(@"aim.circleThickness")];
+    [d setBool:espBox forKey:kKey(@"esp.box")];
+    [d setBool:espCorner forKey:kKey(@"esp.corner")];
+    [d setBool:espSkeleton forKey:kKey(@"esp.skeleton")];
+    [d setBool:espSnaplines forKey:kKey(@"esp.snaplines")];
+    [d setBool:espName forKey:kKey(@"esp.name")];
+    [d setBool:espDistance forKey:kKey(@"esp.distance")];
+    [d setBool:espHealth forKey:kKey(@"esp.health")];
+    [d setBool:espWeapon forKey:kKey(@"esp.weapon")];
+    [d setBool:visCrosshair forKey:kKey(@"vis.crosshair")];
+    [d setFloat:visCrosshairSize forKey:kKey(@"vis.crosshairSize")];
+    [d setFloat:visCrosshairThickness forKey:kKey(@"vis.crosshairThickness")];
+    [d setBool:visFovCircle forKey:kKey(@"vis.fovCircle")];
+    [d setFloat:visFovRadius forKey:kKey(@"vis.fovRadius")];
+    [d setFloat:visFovThickness forKey:kKey(@"vis.fovThickness")];
+    [d setBool:visRemoveFog forKey:kKey(@"vis.removeFog")];
+    [d setBool:visNightMode forKey:kKey(@"vis.nightMode")];
+    [d setBool:visBrightnessBoost forKey:kKey(@"vis.brightnessBoost")];
+    [d setFloat:visBrightness forKey:kKey(@"vis.brightness")];
+    [d setBool:visNoFlash forKey:kKey(@"vis.noFlash")];
+    [d setBool:visNoSmoke forKey:kKey(@"vis.noSmoke")];
+    [d setBool:visBetterTextures forKey:kKey(@"vis.betterTextures")];
+    [d setBool:wpnNoRecoil forKey:kKey(@"wpn.noRecoil")];
+    [d setBool:wpnNoSpread forKey:kKey(@"wpn.noSpread")];
+    [d setFloat:wpnRecoilStrength forKey:kKey(@"wpn.recoilStrength")];
+    [d setBool:wpnFastReload forKey:kKey(@"wpn.fastReload")];
+    [d setBool:wpnRapidFire forKey:kKey(@"wpn.rapidFire")];
+    [d setFloat:wpnFireRate forKey:kKey(@"wpn.fireRate")];
+    [d setBool:wpnNoFlash forKey:kKey(@"wpn.noFlash")];
+    [d setBool:wpnNoSmoke forKey:kKey(@"wpn.noSmoke")];
+    [d setBool:wpnNoShells forKey:kKey(@"wpn.noShells")];
+    [d setBool:miscBunnyHop forKey:kKey(@"misc.bunnyHop")];
+    [d setBool:miscAutoStrafe forKey:kKey(@"misc.autoStrafe")];
+    [d setBool:miscNoFallDamage forKey:kKey(@"misc.noFallDamage")];
+    [d setBool:miscUnlockAll forKey:kKey(@"misc.unlockAll")];
+    [d setBool:miscNoAds forKey:kKey(@"misc.noAds")];
+    [d setBool:miscPanicKey forKey:kKey(@"misc.panicKey")];
+    [d setBool:miscHideWhenClosed forKey:kKey(@"misc.hideWhenClosed")];
     [d synchronize];
 }
 
@@ -1154,7 +1245,7 @@ static bool worldToScreen(void* camera, Vec3 world, CGPoint* out) {
 
         CGRect boxRect = CGRectMake(headScreen.x - boxW/2.0, headScreen.y, boxW, boxH);
         UIColor* boxColor = [UIColor colorWithRed:0.835 green:0.122 blue:0.157 alpha:0.95];
-        [self drawBox:boxRect color:boxColor];
+        if (RavenSettings::espBox) [self drawBox:boxRect color:boxColor];
 
         if (RavenSettings::espSnaplines) {
             [self drawLine:CGPointMake(screen.width / 2.0, screen.height)
@@ -1311,6 +1402,9 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera,
     void* best = nullptr;
     float bestDist = FLT_MAX;
     Vec3 bestAim = {0,0,0};
+    Vec3 localPos = {0,0,0};
+    void* localTransform = g_getRootTransform ? invokePtr(g_getRootTransform, localPlayer) : nullptr;
+    if (localTransform) readTransformPos(localTransform, &localPos);
 
     for (int i = 0; i < count; i++) {
         void* p = items[i];
@@ -1332,6 +1426,12 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera,
 
         Vec3 bonePos = {0,0,0};
         if (!readTransformPos(bone, &bonePos)) continue;
+        void* targetTransform = g_getRootTransform ? invokePtr(g_getRootTransform, p) : nullptr;
+        Vec3 targetPos = bonePos;
+        if (targetTransform) readTransformPos(targetTransform, &targetPos);
+        Vec3 delta = {targetPos.x - localPos.x, targetPos.y - localPos.y, targetPos.z - localPos.z};
+        float worldDistance = sqrtf(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
+        if (RavenSettings::aimMaxDist > 0.0f && worldDistance > RavenSettings::aimMaxDist) continue;
 
         CGPoint screen;
         if (!worldToScreen(camera, bonePos, &screen)) continue;
@@ -1936,7 +2036,7 @@ static void forceLandscape(void) {
     [self relayout];
 
     self.panel.hidden = YES;
-    self.ball.hidden  = NO;
+    self.ball.hidden  = (RavenSettings::uiOpenButton == 2);
     self.runtimeActive = true;
 
     [[NSNotificationCenter defaultCenter] addObserver:self
@@ -2024,8 +2124,11 @@ static void forceLandscape(void) {
     self.panelInner.center = CGPointMake(panelW / 2.0, panelH / 2.0);
 
     CGFloat bsize = 46;
-    if (!self.ball.hidden) {
+    self.panel.alpha = MAX(0.20, MIN(1.0, RavenSettings::miscMenuOpacity / 100.0));
+    if (!self.ball.hidden && RavenSettings::uiOpenButton != 2) {
         CGFloat bx = screen.size.width - safe.right - bsize - 16;
+        if (RavenSettings::uiPosition == 1) bx = safe.left + 16;
+        if (RavenSettings::uiPosition == 2) bx = (screen.size.width - bsize) / 2.0;
         CGFloat by = safe.top + 24;
         bx = MAX(safe.left + 4, MIN(screen.size.width - safe.right - bsize - 4, bx));
         by = MAX(safe.top + 4,  MIN(screen.size.height - safe.bottom - bsize - 4, by));
@@ -2357,6 +2460,14 @@ static void forceLandscape(void) {
 
 - (void)onTabTap:(UIButton*)b { [self selectTab:b.tag]; }
 
+- (void)reloadActiveTab {
+    NSArray* defs = [self tabDefs];
+    if (self.activeTab < 0 || self.activeTab >= (NSInteger)defs.count) return;
+    NSString* key = defs[self.activeTab][@"title"];
+    [self.tabViews removeObjectForKey:key];
+    [self selectTab:self.activeTab];
+}
+
 - (void)selectTab:(NSInteger)idx {
     self.activeTab = idx;
     for (UIButton* b in self.tabButtons) {
@@ -2478,6 +2589,21 @@ static void forceLandscape(void) {
     for (UIView* r in rows) {
         CGFloat rh = r.frame.size.height;
         r.frame = CGRectMake(0, y, w, rh);
+        for (UIView* sub in r.subviews) {
+            if ([sub isKindOfClass:[RVToggle class]]) {
+                sub.frame = CGRectMake(w - 52, (kRowH - 20) / 2.0, 38, 20);
+            } else if ([sub isKindOfClass:[RVSlider class]]) {
+                sub.frame = CGRectMake(14, 26, MAX(40, w - 28), 18);
+            } else if ([sub isKindOfClass:[RVSelector class]]) {
+                sub.frame = CGRectMake(MAX(14, w - 126), 2, 112, 24);
+            } else if ([sub isKindOfClass:[UIButton class]]) {
+                sub.frame = CGRectMake(12, 2, MAX(40, w - 24), 32);
+            } else if (sub.tag == 610) {
+                sub.frame = CGRectMake(w - 68, 4, 54, 18);
+            } else if (sub.tag == 611) {
+                sub.frame = CGRectMake(w - 160, 0, 146, kRowH);
+            }
+        }
         [card addSubview:r];
         y += rh;
     }
@@ -2493,7 +2619,10 @@ static void forceLandscape(void) {
     [row addSubview:l];
     RVToggle* t = [[RVToggle alloc] init];
     t.on = on;
-    t.onChange = cb;
+    t.onChange = ^(BOOL value) {
+        if (cb) cb(value);
+        RavenSettings::save();
+    };
     t.frame = CGRectMake(row.frame.size.width - 52, (kRowH - 20) / 2.0, 38, 20);
     t.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
     [row addSubview:t];
@@ -2507,6 +2636,7 @@ static void forceLandscape(void) {
     [row addSubview:l];
 
     UILabel* val = lbl([NSString stringWithFormat:@"%.0f", v], 12, C_RED, YES);
+    val.tag = 610;
     val.textAlignment = NSTextAlignmentRight;
     val.frame = CGRectMake(row.frame.size.width - 68, 4, 54, 18);
     val.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
@@ -2519,6 +2649,7 @@ static void forceLandscape(void) {
     s.onChange = ^(float nv) {
         val.text = [NSString stringWithFormat:@"%.0f", nv];
         if (cb) cb(nv);
+        RavenSettings::save();
     };
     [row addSubview:s];
     return row;
@@ -2562,7 +2693,10 @@ static void forceLandscape(void) {
     RVSelector* s = [[RVSelector alloc] initWithItems:items selected:selected];
     s.frame = CGRectMake(row.frame.size.width - 126, 2, 112, 24);
     s.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
-    s.onChange = cb;
+    s.onChange = ^(NSInteger value) {
+        if (cb) cb(value);
+        RavenSettings::save();
+    };
     [row addSubview:s];
     return row;
 }
@@ -2573,6 +2707,7 @@ static void forceLandscape(void) {
     l.frame = CGRectMake(14, 0, 140, kRowH);
     [row addSubview:l];
     UILabel* v = lbl(val, 12, C_RED, YES);
+    v.tag = 611;
     v.textAlignment = NSTextAlignmentRight;
     v.frame = CGRectMake(row.frame.size.width - 160, 0, 146, kRowH);
     v.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
@@ -2841,10 +2976,14 @@ static void forceLandscape(void) {
             }],
             [self rowButton:@"Load Config" tap:^{
                 RavenSettings::load();
+                [self reloadActiveTab];
+                [self relayout];
                 [self showToast:@"Config Loaded" detail:@"Saved settings restored"];
             }],
             [self rowButton:@"Reset to Defaults" tap:^{
                 RavenSettings::resetToDefaults();
+                [self reloadActiveTab];
+                [self relayout];
                 [self showToast:@"Reset Complete" detail:@"All settings restored"];
             }],
         ]];
@@ -2852,11 +2991,18 @@ static void forceLandscape(void) {
             [self rowSelector:@"Open/Close Button"
                          items:@[@"Floating", @"Corner", @"Hidden"]
                       selected:RavenSettings::uiOpenButton
-                            cb:^(NSInteger v){ RavenSettings::uiOpenButton = (int)v; RavenSettings::save(); }],
+                            cb:^(NSInteger v){
+                                RavenSettings::uiOpenButton = (int)v;
+                                self.ball.hidden = (v == 2);
+                                [self relayout];
+                            }],
             [self rowSelector:@"Position"
                          items:@[@"Right", @"Left", @"Center"]
                       selected:RavenSettings::uiPosition
-                            cb:^(NSInteger v){ RavenSettings::uiPosition = (int)v; RavenSettings::save(); }],
+                            cb:^(NSInteger v){
+                                RavenSettings::uiPosition = (int)v;
+                                [self relayout];
+                            }],
             [self rowSlider:@"Opacity" min:20 max:100 val:RavenSettings::miscMenuOpacity cb:^(float v){ RavenSettings::miscMenuOpacity = v; }],
         ]];
         UIView* about = [self card:@"ABOUT" width:w rows:@[
