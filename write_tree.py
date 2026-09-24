@@ -1185,6 +1185,13 @@ static bool worldToScreen(void* camera, Vec3 world, CGPoint* out) {
             if (s.activationState == UISceneActivationStateForegroundActive ||
                 s.activationState == UISceneActivationStateForegroundInactive) {
                 self.window.windowScene = (UIWindowScene *)s;
+                CGRect sceneBounds = [UIScreen mainScreen].bounds;
+                self.window.frame = sceneBounds;
+                self.window.bounds = (CGRect){ CGPointZero, sceneBounds.size };
+                self.window.rootViewController.view.frame = self.window.bounds;
+                self.boxes.frame = self.window.bounds;
+                self.lines.frame = self.window.bounds;
+                self.labels.frame = self.window.bounds;
                 self.window.hidden = !RavenSettings::espEnabled;
                 return;
             }
