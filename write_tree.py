@@ -1050,11 +1050,16 @@ static void ensureTransformHandles(void* transformObj) {
     }
 }
 
+// PATCH: WorldToScreenPoint takes 1 arg in Unity (Vector3). Try 1-arg first,
+// fall back to 2-arg for any custom overload. Previously we only tried 2-arg
+// which returned null and silently killed every box.
 static void ensureCameraHandles(void* cameraObj) {
     if (!cameraObj || g_cameraClass) return;
     g_cameraClass = IL2CPP::objectGetClass(cameraObj);
     if (g_cameraClass) {
-        g_worldToScreen = IL2CPP::resolveMethod(g_cameraClass, GameData::kMWorldToScreen, 2);
+        g_worldToScreen = IL2CPP::resolveMethod(g_cameraClass, GameData::kMWorldToScreen, 1);
+        if (!g_worldToScreen)
+            g_worldToScreen = IL2CPP::resolveMethod(g_cameraClass, GameData::kMWorldToScreen, 2);
     }
 }
 
@@ -1097,13 +1102,14 @@ static bool readTransformPos(void* transformObj, Vec3* out) {
     return true;
 }
 
+// PATCH: single-arg invoke now. Unity WorldToScreenPoint(Vector3) returns
+// Vector3, we read x/y/z from boxed return +0x10.
 static bool worldToScreen(void* camera, Vec3 world, CGPoint* out) {
     if (!camera) return false;
     ensureCameraHandles(camera);
     if (!g_worldToScreen) return false;
     Vec3 arg = world;
-    int eye = 0;
-    void* args[2] = { &arg, &eye };
+    void* args[1] = { &arg };
     void* r = IL2CPP::invokeMethod(g_worldToScreen, camera, args);
     if (!r) return false;
     Vec3 sp = *(Vec3*)((uint8_t*)r + 0x10);
@@ -1235,6 +1241,12 @@ static bool worldToScreen(void* camera, Vec3 world, CGPoint* out) {
         camera = (localCamCtrl && g_getRenderCamera) ? invokePtr(g_getRenderCamera, localCamCtrl) : nullptr;
     }
     if (!camera) return;
+
+    // PATCH: one-shot diagnostic after camera is resolved. If w2s is null
+    // here, the resolve chain failed on both arities and we need the real
+    // method name from a dump.
+    RAVEN_LOG("esp2: w2s=%p camClass=%p transformGetter=%p cam=%p",
+              g_worldToScreen, g_cameraClass, g_playerTransformGetter, camera);
 
     Vec3 localPos = {0,0,0};
     void* localTransform = g_playerTransformGetter ? invokePtr(g_playerTransformGetter, localPlayer) : nullptr;
@@ -1376,11 +1388,14 @@ static void ensureTransformClass(void* obj) {
     }
 }
 
+// PATCH: same resolve chain as ESP — 1-arg first, 2-arg fallback.
 static void ensureCameraClass(void* obj) {
     if (!obj || g_cameraClass) return;
     g_cameraClass = IL2CPP::objectGetClass(obj);
     if (g_cameraClass) {
-        g_worldToScreen = IL2CPP::resolveMethod(g_cameraClass, GameData::kMWorldToScreen, 2);
+        g_worldToScreen = IL2CPP::resolveMethod(g_cameraClass, GameData::kMWorldToScreen, 1);
+        if (!g_worldToScreen)
+            g_worldToScreen = IL2CPP::resolveMethod(g_cameraClass, GameData::kMWorldToScreen, 2);
     }
 }
 
@@ -1407,13 +1422,13 @@ static bool readTransformPos(void* t, Vec3* out) {
     return true;
 }
 
+// PATCH: single-arg invoke, matching ESP.
 static bool worldToScreen(void* cam, Vec3 w, CGPoint* out) {
     if (!cam) return false;
     ensureCameraClass(cam);
     if (!g_worldToScreen) return false;
     Vec3 arg = w;
-    int eye = 0;
-    void* args[2] = { &arg, &eye };
+    void* args[1] = { &arg };
     void* r = IL2CPP::invokeMethod(g_worldToScreen, cam, args);
     if (!r) return false;
     Vec3 sp = *(Vec3*)((uint8_t*)r + 0x10);
@@ -3114,4 +3129,4 @@ static void forceLandscape(void) {
 @end
 """)
 
-print("done - RavenEngine with multi-assembly klass() lookup, yaw removed")
+print("done - RavenEngine patched: w2s 1-arg resolve chain + esp2 diagnostic")
