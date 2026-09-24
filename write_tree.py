@@ -38,6 +38,10 @@ static void raven_entry(void) {
     @autoreleasepool {
         RAVEN_LOG("entry");
         RavenSettings::load();
+        RAVEN_LOG("settings: aimEnabled=%d espEnabled=%d aimActivation=%d",
+                  RavenSettings::aimEnabled,
+                  RavenSettings::espEnabled,
+                  RavenSettings::aimActivation);
         Updater::fetchAsync(kConfigURL);
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(4 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
@@ -1101,8 +1105,9 @@ static bool readTransformPos(void* transformObj, Vec3* out) {
     return true;
 }
 
-// FIX: log line arg count matched. Diagnostic on first 15 calls.
-static bool worldToScreen(void* camera, Vec3 world, CGPoint* out) {
+// Project world -> the SAME coordinate space the draw layers live in.
+// Caller passes the layer/window bounds; we do not assume UIScreen matches.
+static bool worldToScreen(void* camera, Vec3 world, CGSize scr, CGPoint* out) {
     if (!camera) return false;
     ensureCameraHandles(camera);
     if (!g_worldToScreen) return false;
@@ -1112,13 +1117,10 @@ static bool worldToScreen(void* camera, Vec3 world, CGPoint* out) {
     if (!r) return false;
     Vec3 sp = *(Vec3*)((uint8_t*)r + 0x10);
     if (sp.z < 0.01f) return false;
-    CGSize scr = [UIScreen mainScreen].bounds.size;
     CGFloat scale = [UIScreen mainScreen].scale;
     if (scale <= 0.0) scale = 1.0;
-    CGFloat projectedX = sp.x / scale;
-    CGFloat projectedY = sp.y / scale;
-    out->x = projectedX;
-    out->y = scr.height - projectedY;
+    out->x = sp.x / scale;
+    out->y = scr.height - (sp.y / scale);
     bool inRange = (out->x >= -100 && out->x <= scr.width + 100 &&
                     out->y >= -100 && out->y <= scr.height + 100);
 
@@ -1153,24 +1155,27 @@ static bool worldToScreen(void* camera, Vec3 world, CGPoint* out) {
     self.window.hidden = YES;
 
     self.boxes = [CAShapeLayer layer];
-    self.boxes.frame = self.window.bounds;
     self.boxes.fillColor = [UIColor clearColor].CGColor;
     self.boxes.lineWidth = 1.5;
     self.boxes.strokeColor = RAVEN_RED.CGColor;
+    self.boxes.anchorPoint = CGPointZero;
+    self.boxes.position = CGPointZero;
 
     self.lines = [CAShapeLayer layer];
-    self.lines.frame = self.window.bounds;
     self.lines.fillColor = [UIColor clearColor].CGColor;
     self.lines.lineWidth = 1.0;
     self.lines.strokeColor = RAVEN_RED.CGColor;
+    self.lines.anchorPoint = CGPointZero;
+    self.lines.position = CGPointZero;
 
     self.labels = [CATextLayer layer];
-    self.labels.frame = self.window.bounds;
     self.labels.foregroundColor = RAVEN_SILVER.CGColor;
     self.labels.fontSize = 11;
     self.labels.contentsScale = [UIScreen mainScreen].scale;
     self.labels.alignmentMode = kCAAlignmentLeft;
     self.labels.wrapped = YES;
+    self.labels.anchorPoint = CGPointZero;
+    self.labels.position = CGPointZero;
 
     [self.window.layer addSublayer:self.boxes];
     [self.window.layer addSublayer:self.lines];
@@ -1181,21 +1186,46 @@ static bool worldToScreen(void* camera, Vec3 world, CGPoint* out) {
 - (void)attachToScene {
     if (!self.window) return;
     for (UIScene *s in [UIApplication sharedApplication].connectedScenes) {
-        if ([s isKindOfClass:[UIWindowScene class]]) {
-            if (s.activationState == UISceneActivationStateForegroundActive ||
-                s.activationState == UISceneActivationStateForegroundInactive) {
-                self.window.windowScene = (UIWindowScene *)s;
-                CGRect sceneBounds = [UIScreen mainScreen].bounds;
-                self.window.frame = sceneBounds;
-                self.window.bounds = (CGRect){ CGPointZero, sceneBounds.size };
-                self.window.rootViewController.view.frame = self.window.bounds;
-                self.boxes.frame = self.window.bounds;
-                self.lines.frame = self.window.bounds;
-                self.labels.frame = self.window.bounds;
-                self.window.hidden = !RavenSettings::espEnabled;
-                return;
-            }
+        if (![s isKindOfClass:[UIWindowScene class]]) continue;
+        if (s.activationState != UISceneActivationStateForegroundActive &&
+            s.activationState != UISceneActivationStateForegroundInactive) continue;
+
+        UIWindowScene* ws = (UIWindowScene *)s;
+        self.window.windowScene = ws;
+
+        CGRect sceneBounds = ws.coordinateSpace.bounds;
+        if (sceneBounds.size.width < 1 || sceneBounds.size.height < 1) {
+            sceneBounds = [UIScreen mainScreen].bounds;
         }
+        CGRect normalized = (CGRect){ CGPointZero, sceneBounds.size };
+        self.window.frame  = normalized;
+        self.window.bounds = normalized;
+
+        // wipe any stale rotation from the initial portrait create
+        self.window.layer.transform = CATransform3DIdentity;
+
+        UIViewController* root = self.window.rootViewController;
+        root.view.frame = normalized;
+        root.view.insetsLayoutMarginsFromSafeArea = NO;
+
+        for (CALayer* L in @[self.boxes, self.lines, self.labels]) {
+            L.anchorPoint = CGPointZero;
+            L.position    = CGPointZero;
+            L.bounds      = normalized;
+        }
+
+        self.window.hidden = !RavenSettings::espEnabled;
+
+        static bool logged = false;
+        if (!logged) {
+            RAVEN_LOG("esp-scene: scene=%.0fx%.0f win=%@ boxes=%@ root=%@",
+                      normalized.size.width, normalized.size.height,
+                      NSStringFromCGRect(self.window.frame),
+                      NSStringFromCGRect(self.boxes.frame),
+                      NSStringFromCGRect(root.view.frame));
+            logged = true;
+        }
+        return;
     }
 }
 
@@ -1294,7 +1324,8 @@ static bool worldToScreen(void* camera, Vec3 world, CGPoint* out) {
     void* localTransform = g_playerTransformGetter ? invokePtr(g_playerTransformGetter, localPlayer) : nullptr;
     if (localTransform) readTransformPos(localTransform, &localPos);
 
-    CGSize screen = [UIScreen mainScreen].bounds.size;
+    // Screen space = the layer/window space, NOT UIScreen, so both agree.
+    CGSize screen = self.window.bounds.size;
     NSMutableString* labels = [NSMutableString string];
 
     for (int i = 0; i < count; i++) {
@@ -1323,8 +1354,8 @@ static bool worldToScreen(void* camera, Vec3 world, CGPoint* out) {
         }
 
         CGPoint headScreen, feetScreen;
-        if (!worldToScreen(camera, headPos, &headScreen)) continue;
-        if (!worldToScreen(camera, feetPos, &feetScreen)) continue;
+        if (!worldToScreen(camera, headPos, screen, &headScreen)) continue;
+        if (!worldToScreen(camera, feetPos, screen, &feetScreen)) continue;
 
         float boxH = static_cast<float>(std::abs(feetScreen.y - headScreen.y));
         if (boxH < 4 || boxH > 2000) continue;
@@ -1464,7 +1495,7 @@ static bool readTransformPos(void* t, Vec3* out) {
     return true;
 }
 
-static bool worldToScreen(void* cam, Vec3 w, CGPoint* out) {
+static bool worldToScreen(void* cam, Vec3 w, CGSize scr, CGPoint* out) {
     if (!cam) return false;
     ensureCameraClass(cam);
     if (!g_worldToScreen) return false;
@@ -1474,13 +1505,10 @@ static bool worldToScreen(void* cam, Vec3 w, CGPoint* out) {
     if (!r) return false;
     Vec3 sp = *(Vec3*)((uint8_t*)r + 0x10);
     if (sp.z < 0.01f) return false;
-    CGSize scr = [UIScreen mainScreen].bounds.size;
     CGFloat scale = [UIScreen mainScreen].scale;
     if (scale <= 0.0) scale = 1.0;
-    CGFloat projectedX = sp.x / scale;
-    CGFloat projectedY = sp.y / scale;
-    out->x = projectedX;
-    out->y = scr.height - projectedY;
+    out->x = sp.x / scale;
+    out->y = scr.height - (sp.y / scale);
     return YES;
 }
 
@@ -1537,7 +1565,7 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera,
         if (RavenSettings::aimMaxDist > 0.0f && worldDistance > RavenSettings::aimMaxDist) continue;
 
         CGPoint screen;
-        if (!worldToScreen(camera, bonePos, &screen)) continue;
+        if (!worldToScreen(camera, bonePos, scr, &screen)) continue;
 
         float d = hypotf(screen.x - center.x, screen.y - center.y);
         if (d > fovPx) continue;
@@ -1617,12 +1645,12 @@ void tick() {
     src.y += 1.65f;
 
     Vec3 dir = { aimPoint.x - src.x, aimPoint.y - src.y, aimPoint.z - src.z };
-    float len = sqrtf(dir.x*dir.x + dir.y*dir.y + dir.z*dir.z);
-    if (len < 0.01f) return;
-    dir.x /= len; dir.y /= len; dir.z /= len;
+    float horiz = sqrtf(dir.x*dir.x + dir.z*dir.z);
+    if (horiz < 0.01f && fabsf(dir.y) < 0.01f) return;
 
-    float pitch = asinf(dir.y)         * 180.0f / M_PI;
-    pitch = MAX(-89.0f, MIN(89.0f, pitch));
+    float wantYaw   = atan2f(dir.x, dir.z) * 180.0f / (float)M_PI;
+    float wantPitch = -atan2f(dir.y, horiz) * 180.0f / (float)M_PI;
+    wantPitch = MAX(-89.0f, MIN(89.0f, wantPitch));
 
     void* movement = readPtr(localPlayer, GameData::PlayerRoot::PlayerMovement);
     if (!movement) return;
@@ -1635,26 +1663,36 @@ void tick() {
     }
 
     float smooth = RavenSettings::aimSmooth;
-    if (smooth <= 0.01f) smooth = 1.0f;
+    if (smooth < 1.0f) smooth = 1.0f;
 
-    float* vertAngle = (float*)((uint8_t*)movement + GameData::PlayerMovement::VerticalRotation);
+    float* pitchField = (float*)((uint8_t*)movement + GameData::PlayerMovement::VerticalRotation);
+    float* yawField   = (float*)((uint8_t*)movement + GameData::PlayerMovement::HorRotationAngles);
 
-    if (smooth > 1.0f) {
-        float nextPitch = *vertAngle + (pitch - *vertAngle) / smooth;
-        if (g_setVerticalRotation) {
-            void* args[1] = { &nextPitch };
-            IL2CPP::invokeMethod(g_setVerticalRotation, movement, args);
-        } else {
-            *vertAngle = nextPitch;
-        }
-    } else {
-        if (g_setVerticalRotation) {
-            void* args[1] = { &pitch };
-            IL2CPP::invokeMethod(g_setVerticalRotation, movement, args);
-        } else {
-            *vertAngle = pitch;
-        }
+    float curPitch = *pitchField;
+    float curYaw   = *yawField;
+
+    float dYaw = wantYaw - curYaw;
+    while (dYaw >  180.0f) dYaw -= 360.0f;
+    while (dYaw < -180.0f) dYaw += 360.0f;
+
+    float nextPitch = curPitch + (wantPitch - curPitch) / smooth;
+    float nextYaw   = curYaw   + dYaw / smooth;
+
+    static int dbg = 0;
+    if (dbg < 10) {
+        RAVEN_LOG("aim-dbg: curPitch=%.2f curYaw=%.2f wantPitch=%.2f wantYaw=%.2f src=(%.1f,%.1f,%.1f) aim=(%.1f,%.1f,%.1f)",
+                  curPitch, curYaw, wantPitch, wantYaw,
+                  src.x, src.y, src.z, aimPoint.x, aimPoint.y, aimPoint.z);
+        dbg++;
     }
+
+    if (g_setVerticalRotation) {
+        void* args[1] = { &nextPitch };
+        IL2CPP::invokeMethod(g_setVerticalRotation, movement, args);
+    } else {
+        *pitchField = nextPitch;
+    }
+    *yawField = nextYaw;
 }
 
 }
@@ -2592,10 +2630,10 @@ static void forceLandscape(void) {
 - (void)onTabTap:(UIButton*)b { [self selectTab:b.tag]; }
 
 - (void)reloadActiveTab {
+    [self.tabViews removeAllObjects];
+    for (UIView* v in self.contentView.subviews) [v removeFromSuperview];
     NSArray* defs = [self tabDefs];
     if (self.activeTab < 0 || self.activeTab >= (NSInteger)defs.count) return;
-    NSString* key = defs[self.activeTab][@"title"];
-    [self.tabViews removeObjectForKey:key];
     [self selectTab:self.activeTab];
 }
 
@@ -3183,4 +3221,4 @@ static void forceLandscape(void) {
 @end
 """)
 
-print("done - esp: and aim: anchor strings baked in, CI will pass")
+print("done - scene-space ESP, yaw+pitch aimbot, reload-all-tabs, settings log")
