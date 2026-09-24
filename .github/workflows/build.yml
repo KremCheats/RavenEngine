@@ -12,6 +12,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Create filter plist
+        run: |
+          cat > Raven.plist <<'EOF'
+          { Filter = { Bundles = ( "com.AlfaBravo.CombatMaster" ); }; }
+          EOF
+          echo "--- Raven.plist ---"
+          cat Raven.plist
+
       - name: Patch IL2CPP boxing + file diagnostics
         run: |
           python3 - <<'PYEOF'
@@ -26,7 +34,6 @@ jobs:
           original = src
           applied = 0
 
-          # ── 1. RAVEN_LOG -> file + os_log, with @fmt fix ──
           old_macro = '#define RAVEN_LOG(fmt, ...) os_log(OS_LOG_DEFAULT, "[raven] " fmt, ##__VA_ARGS__)'
           new_macro = (
               'static inline void raven_file_log(NSString* msg) {\n'
@@ -55,7 +62,6 @@ jobs:
           elif "raven_file_log" in src and "stringWithFormat:@fmt" in src:
               print("[skip] RAVEN_LOG already patched correctly")
           elif "raven_file_log" in src and "stringWithFormat:fmt" in src:
-              # Previous patch landed but missed the @ — fix it now
               src = src.replace(
                   '[NSString stringWithFormat:fmt, ##__VA_ARGS__]',
                   '[NSString stringWithFormat:@fmt, ##__VA_ARGS__]'
@@ -64,7 +70,6 @@ jobs:
           else:
               print("[warn] RAVEN_LOG macro not found in expected form")
 
-          # ── 2. Value-type boxing ──
           reps = [
               ("return r ? *(int32_t*)r : 0;",
                "return r ? *(int32_t*)((uint8_t*)r + 0x10) : 0;"),
@@ -85,7 +90,6 @@ jobs:
               else:
                   print(f"[skip] already: {old}")
 
-          # ── 3. ESP render diagnostics ──
           esp_old = '''    resolveHandles();
               if (!g_playerRootClass) return;
 
@@ -115,7 +119,6 @@ jobs:
           else:
               print("[warn] ESP anchor not found")
 
-          # ── 4. Aimbot tick diagnostics ──
           aim_old = '''    resolveHandles();
               if (!g_playerRootClass) return;
 
