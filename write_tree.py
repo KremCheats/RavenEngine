@@ -2811,4 +2811,308 @@ static void forceLandscape(void) {
     toast.layer.borderColor = [C_RED colorWithAlphaComponent:0.42].CGColor;
     toast.layer.shadowColor = [UIColor blackColor].CGColor;
     toast.layer.shadowOpacity = 0.45;
-    toast.layer.shadowRadius =
+    toast.layer.shadowRadius = 10;
+    toast.layer.shadowOffset = CGSizeMake(0, 4);
+
+    UIView* bar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 3, 48)];
+    bar.backgroundColor = C_RED;
+    bar.layer.cornerRadius = 1.5;
+    [toast addSubview:bar];
+
+    UILabel* t = lbl(title ?: @"RAVEN", 12, C_TEXT, YES);
+    t.frame = CGRectMake(14, 7, 238, 16);
+    [toast addSubview:t];
+
+    UILabel* d = lbl(detail ?: @"", 10, C_SEC, NO);
+    d.frame = CGRectMake(14, 25, 238, 14);
+    [toast addSubview:d];
+
+    self.toastView = toast;
+    [self.panelInner addSubview:toast];
+    [self.panelInner bringSubviewToFront:toast];
+
+    if (RavenSettings::animations) {
+        toast.alpha = 0.0;
+        toast.transform = CGAffineTransformMakeTranslation(14, -4);
+        [UIView animateWithDuration:0.22 animations:^{
+            toast.alpha = 1.0;
+            toast.transform = CGAffineTransformIdentity;
+        }];
+    }
+
+    __weak RavenMenu* weakSelf = self;
+    self.toastTimer = [NSTimer scheduledTimerWithTimeInterval:2.2 repeats:NO block:^(NSTimer* timer) {
+        RavenMenu* selfRef = weakSelf;
+        if (!selfRef || selfRef.toastView != toast) return;
+        void (^removeToast)(void) = ^{
+            [toast removeFromSuperview];
+            if (selfRef.toastView == toast) selfRef.toastView = nil;
+        };
+        if (RavenSettings::animations) {
+            [UIView animateWithDuration:0.18 animations:^{
+                toast.alpha = 0.0;
+                toast.transform = CGAffineTransformMakeTranslation(10, -4);
+            } completion:^(BOOL finished) { removeToast(); }];
+        } else {
+            removeToast();
+        }
+    }];
+}
+
+- (NSArray*)cardsForTab:(NSString*)tab width:(CGFloat)w {
+    if ([tab isEqualToString:@"AIMBOT"]) {
+        UIView* general = [self card:@"GENERAL" width:w rows:@[
+            [self rowToggle:@"Enable Aimbot" on:RavenSettings::aimEnabled cb:^(BOOL v){ RavenAimbot::setEnabled(v); RavenSettings::save(); }],
+            [self rowSelector:@"Aim Activation"
+                         items:@[@"Hold", @"Toggle", @"Always"]
+                      selected:RavenSettings::aimActivation
+                            cb:^(NSInteger v){ RavenSettings::aimActivation = (int)v; RavenSettings::save(); }],
+            [self rowSlider:@"Aim FOV" min:0 max:360 val:RavenSettings::aimFov cb:^(float v){ RavenSettings::aimFov = v; }],
+            [self rowSlider:@"Smoothness" min:1 max:30 val:RavenSettings::aimSmooth cb:^(float v){ RavenSettings::aimSmooth = v; }],
+        ]];
+        UIView* advanced = [self card:@"ADVANCED" width:w rows:@[
+            [self rowToggle:@"Prediction" on:RavenSettings::aimPrediction cb:^(BOOL v){ RavenSettings::aimPrediction = v; }],
+            [self rowSlider:@"Aim Delay" min:0 max:300 val:RavenSettings::aimDelay cb:^(float v){ RavenSettings::aimDelay = v; }],
+            [self rowSlider:@"Target Switch Delay" min:0 max:500 val:RavenSettings::aimSwitchDelay cb:^(float v){ RavenSettings::aimSwitchDelay = v; }],
+        ]];
+        UIView* targeting = [self card:@"TARGETING" width:w rows:@[
+            [self rowSelector:@"Target Bone"
+                         items:@[@"Head", @"Neck", @"Chest", @"Pelvis"]
+                      selected:RavenSettings::aimBone
+                            cb:^(NSInteger v){ RavenSettings::aimBone = (int)v; RavenSettings::save(); }],
+            [self rowSelector:@"Target Priority"
+                         items:@[@"Distance", @"Health", @"Threat"]
+                      selected:RavenSettings::aimPriority
+                            cb:^(NSInteger v){ RavenSettings::aimPriority = (int)v; RavenSettings::save(); }],
+            [self rowToggle:@"Visible Check" on:RavenSettings::aimVisCheck cb:^(BOOL v){ RavenSettings::aimVisCheck = v; }],
+            [self rowSlider:@"Max Distance" min:50 max:500 val:RavenSettings::aimMaxDist cb:^(float v){ RavenSettings::aimMaxDist = v; }],
+        ]];
+        UIView* fovCard = [self card:@"FOV" width:w rows:@[
+            [self rowToggle:@"Show FOV Circle" on:RavenSettings::aimShowCircle cb:^(BOOL v){ RavenSettings::aimShowCircle = v; }],
+            [self rowSlider:@"FOV Radius" min:20 max:400 val:RavenSettings::aimCircleRadius cb:^(float v){ RavenSettings::aimCircleRadius = v; }],
+            [self rowSlider:@"Circle Thickness" min:1 max:6 val:RavenSettings::aimCircleThickness cb:^(float v){ RavenSettings::aimCircleThickness = v; }],
+        ]];
+        return @[general, targeting, advanced, fovCard];
+    }
+
+    if ([tab isEqualToString:@"ESP"]) {
+        UIView* player = [self card:@"PLAYER ESP" width:w rows:@[
+            [self rowToggle:@"Enable ESP" on:RavenSettings::espEnabled cb:^(BOOL v){ RavenSettings::espEnabled = v; RavenSettings::save(); }],
+            [self rowToggle:@"Box" on:RavenSettings::espBox cb:^(BOOL v){ RavenSettings::espBox = v; }],
+            [self rowToggle:@"Corner Box" on:RavenSettings::espCorner cb:^(BOOL v){ RavenSettings::espCorner = v; }],
+            [self rowToggle:@"Skeleton" on:RavenSettings::espSkeleton cb:^(BOOL v){ RavenSettings::espSkeleton = v; }],
+            [self rowToggle:@"Snaplines" on:RavenSettings::espSnaplines cb:^(BOOL v){ RavenSettings::espSnaplines = v; }],
+        ]];
+        UIView* info = [self card:@"INFORMATION" width:w rows:@[
+            [self rowToggle:@"Name" on:RavenSettings::espName cb:^(BOOL v){ RavenSettings::espName = v; }],
+            [self rowToggle:@"Distance" on:RavenSettings::espDistance cb:^(BOOL v){ RavenSettings::espDistance = v; }],
+            [self rowToggle:@"Health" on:RavenSettings::espHealth cb:^(BOOL v){ RavenSettings::espHealth = v; }],
+            [self rowToggle:@"Weapon" on:RavenSettings::espWeapon cb:^(BOOL v){ RavenSettings::espWeapon = v; }],
+        ]];
+        UIView* colors = [self card:@"COLORS" width:w rows:@[
+            [self rowSelector:@"Enemy Color"
+                         items:@[@"Red", @"Green", @"White", @"Yellow", @"Cyan"]
+                      selected:RavenSettings::espEnemyColor
+                            cb:^(NSInteger v){ RavenSettings::espEnemyColor = (int)v; RavenSettings::save(); }],
+            [self rowSelector:@"Visible Color"
+                         items:@[@"Red", @"Green", @"White", @"Yellow", @"Cyan"]
+                      selected:RavenSettings::espVisibleColor
+                            cb:^(NSInteger v){ RavenSettings::espVisibleColor = (int)v; RavenSettings::save(); }],
+            [self rowSelector:@"Skeleton Color"
+                         items:@[@"Red", @"Green", @"White", @"Yellow", @"Cyan"]
+                      selected:RavenSettings::espSkeletonColor
+                            cb:^(NSInteger v){ RavenSettings::espSkeletonColor = (int)v; RavenSettings::save(); }],
+            [self rowSelector:@"Box Color"
+                         items:@[@"Red", @"Green", @"White", @"Yellow", @"Cyan"]
+                      selected:RavenSettings::espBoxColor
+                            cb:^(NSInteger v){ RavenSettings::espBoxColor = (int)v; RavenSettings::save(); }],
+        ]];
+        return @[player, info, colors];
+    }
+
+    if ([tab isEqualToString:@"VISUALS"]) {
+        UIView* cross = [self card:@"CROSSHAIR" width:w rows:@[
+            [self rowToggle:@"Enable Crosshair" on:RavenSettings::visCrosshair cb:^(BOOL v){ RavenSettings::visCrosshair = v; }],
+            [self rowSelector:@"Style"
+                         items:@[@"Dot", @"Cross", @"Circle", @"T-Shape"]
+                      selected:RavenSettings::visCrosshairStyle
+                            cb:^(NSInteger v){ RavenSettings::visCrosshairStyle = (int)v; RavenSettings::save(); }],
+            [self rowSlider:@"Size" min:1 max:30 val:RavenSettings::visCrosshairSize cb:^(float v){ RavenSettings::visCrosshairSize = v; }],
+            [self rowSlider:@"Thickness" min:1 max:6 val:RavenSettings::visCrosshairThickness cb:^(float v){ RavenSettings::visCrosshairThickness = v; }],
+        ]];
+        UIView* fov = [self card:@"FOV CIRCLE" width:w rows:@[
+            [self rowToggle:@"Enable" on:RavenSettings::visFovCircle cb:^(BOOL v){ RavenSettings::visFovCircle = v; }],
+            [self rowSlider:@"Radius" min:20 max:400 val:RavenSettings::visFovRadius cb:^(float v){ RavenSettings::visFovRadius = v; }],
+            [self rowSlider:@"Thickness" min:1 max:6 val:RavenSettings::visFovThickness cb:^(float v){ RavenSettings::visFovThickness = v; }],
+        ]];
+        UIView* world = [self card:@"WORLD VISUALS" width:w rows:@[
+            [self rowToggle:@"Remove Fog" on:RavenSettings::visRemoveFog cb:^(BOOL v){ RavenSettings::visRemoveFog = v; }],
+            [self rowToggle:@"Night Mode" on:RavenSettings::visNightMode cb:^(BOOL v){ RavenSettings::visNightMode = v; }],
+            [self rowToggle:@"Brightness Boost" on:RavenSettings::visBrightnessBoost cb:^(BOOL v){ RavenSettings::visBrightnessBoost = v; }],
+            [self rowSlider:@"Brightness" min:0 max:200 val:RavenSettings::visBrightness cb:^(float v){ RavenSettings::visBrightness = v; }],
+        ]];
+        UIView* display = [self card:@"DISPLAY" width:w rows:@[
+            [self rowToggle:@"No Flash" on:RavenSettings::visNoFlash cb:^(BOOL v){ RavenSettings::visNoFlash = v; }],
+            [self rowToggle:@"No Smoke" on:RavenSettings::visNoSmoke cb:^(BOOL v){ RavenSettings::visNoSmoke = v; }],
+            [self rowToggle:@"Better Textures" on:RavenSettings::visBetterTextures cb:^(BOOL v){ RavenSettings::visBetterTextures = v; }],
+        ]];
+        return @[cross, fov, world, display];
+    }
+
+    if ([tab isEqualToString:@"WEAPON"]) {
+        UIView* recoil = [self card:@"RECOIL" width:w rows:@[
+            [self rowToggle:@"No Recoil" on:RavenSettings::wpnNoRecoil cb:^(BOOL v){ RavenSettings::wpnNoRecoil = v; }],
+            [self rowToggle:@"No Spread" on:RavenSettings::wpnNoSpread cb:^(BOOL v){ RavenSettings::wpnNoSpread = v; }],
+            [self rowSlider:@"Recoil Strength" min:0 max:100 val:RavenSettings::wpnRecoilStrength cb:^(float v){ RavenSettings::wpnRecoilStrength = v; }],
+        ]];
+        UIView* handling = [self card:@"HANDLING" width:w rows:@[
+            [self rowToggle:@"Fast Reload" on:RavenSettings::wpnFastReload cb:^(BOOL v){ RavenSettings::wpnFastReload = v; }],
+            [self rowToggle:@"Rapid Fire" on:RavenSettings::wpnRapidFire cb:^(BOOL v){ RavenSettings::wpnRapidFire = v; }],
+            [self rowSlider:@"Fire Rate Multiplier" min:1 max:10 val:RavenSettings::wpnFireRate cb:^(float v){ RavenSettings::wpnFireRate = v; }],
+        ]];
+        UIView* effects = [self card:@"EFFECTS" width:w rows:@[
+            [self rowToggle:@"No Flash" on:RavenSettings::wpnNoFlash cb:^(BOOL v){ RavenSettings::wpnNoFlash = v; }],
+            [self rowToggle:@"No Smoke" on:RavenSettings::wpnNoSmoke cb:^(BOOL v){ RavenSettings::wpnNoSmoke = v; }],
+            [self rowToggle:@"No Shell Casings" on:RavenSettings::wpnNoShells cb:^(BOOL v){ RavenSettings::wpnNoShells = v; }],
+        ]];
+        return @[recoil, handling, effects];
+    }
+
+    if ([tab isEqualToString:@"MISC"]) {
+        UIView* movement = [self card:@"MOVEMENT" width:w rows:@[
+            [self rowToggle:@"Bunny Hop" on:RavenSettings::miscBunnyHop cb:^(BOOL v){ RavenSettings::miscBunnyHop = v; }],
+            [self rowToggle:@"Auto Strafe" on:RavenSettings::miscAutoStrafe cb:^(BOOL v){ RavenSettings::miscAutoStrafe = v; }],
+            [self rowToggle:@"No Fall Damage" on:RavenSettings::miscNoFallDamage cb:^(BOOL v){ RavenSettings::miscNoFallDamage = v; }],
+        ]];
+        UIView* utility = [self card:@"UTILITY" width:w rows:@[
+            [self rowToggle:@"Unlock All" on:RavenSettings::miscUnlockAll cb:^(BOOL v){ RavenSettings::miscUnlockAll = v; }],
+            [self rowToggle:@"No Ads" on:RavenSettings::miscNoAds cb:^(BOOL v){ RavenSettings::miscNoAds = v; }],
+            [self rowToggle:@"Panic Key" on:RavenSettings::miscPanicKey cb:^(BOOL v){ RavenSettings::miscPanicKey = v; }],
+        ]];
+        UIView* iface = [self card:@"INTERFACE" width:w rows:@[
+            [self rowToggle:@"Hide Menu When Closed" on:RavenSettings::miscHideWhenClosed cb:^(BOOL v){ RavenSettings::miscHideWhenClosed = v; }],
+            [self rowSlider:@"Menu Opacity" min:20 max:100 val:RavenSettings::miscMenuOpacity cb:^(float v){ RavenSettings::miscMenuOpacity = v; }],
+        ]];
+        return @[movement, utility, iface];
+    }
+
+    if ([tab isEqualToString:@"PLAYERS"]) {
+        UILabel* empty = lbl(@"No player data available", 12, C_SEC, NO);
+        empty.textAlignment = NSTextAlignmentCenter;
+        empty.frame = CGRectMake(0, 0, w - 28, 60);
+        UIView* emptyRow = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 0, 60)];
+        [emptyRow addSubview:empty];
+        UIView* list = [self card:@"PLAYER LIST" width:w rows:@[emptyRow]];
+        return @[list];
+    }
+
+    if ([tab isEqualToString:@"SETTINGS"]) {
+        std::string rv = Updater::remoteVersion();
+        NSString* rvStr = [NSString stringWithUTF8String:rv.c_str()];
+
+        UIView* iface = [self card:@"INTERFACE" width:w rows:@[
+            [self rowSlider:@"Menu Scale" min:50 max:150 val:RavenSettings::menuScale cb:^(float v){
+                RavenSettings::menuScale = v;
+                [self relayout];
+                [self clampPanel];
+            }],
+            [self rowSelector:@"Accent Color"
+                         items:@[@"Crimson", @"Red", @"Blue", @"Green", @"Purple"]
+                      selected:RavenSettings::uiAccentColor
+                            cb:^(NSInteger v){ RavenSettings::uiAccentColor = (int)v; RavenSettings::save(); }],
+            [self rowToggle:@"Animations" on:RavenSettings::animations cb:^(BOOL v){
+                RavenSettings::animations = v;
+                RavenSettings::save();
+                [self showToast:@"Animations" detail:(v ? @"Smooth UI motion enabled" : @"UI motion disabled")];
+            }],
+        ]];
+        UIView* config = [self card:@"CONFIG" width:w rows:@[
+            [self rowButton:@"Save Config" tap:^{
+                RavenSettings::save();
+                [self showToast:@"Config Saved" detail:@"RAVEN settings stored"];
+            }],
+            [self rowButton:@"Load Config" tap:^{
+                RavenSettings::load();
+                [self reloadActiveTab];
+                [self relayout];
+                [self showToast:@"Config Loaded" detail:@"Saved settings restored"];
+            }],
+            [self rowButton:@"Reset to Defaults" tap:^{
+                RavenSettings::resetToDefaults();
+                [self reloadActiveTab];
+                [self relayout];
+                [self showToast:@"Reset Complete" detail:@"All settings restored"];
+            }],
+        ]];
+        UIView* menu = [self card:@"MENU" width:w rows:@[
+            [self rowSelector:@"Open/Close Button"
+                         items:@[@"Floating", @"Corner", @"Hidden"]
+                      selected:RavenSettings::uiOpenButton
+                            cb:^(NSInteger v){
+                                RavenSettings::uiOpenButton = (int)v;
+                                self.ball.hidden = (v == 2);
+                                [self relayout];
+                            }],
+            [self rowSelector:@"Position"
+                         items:@[@"Right", @"Left", @"Center"]
+                      selected:RavenSettings::uiPosition
+                            cb:^(NSInteger v){
+                                RavenSettings::uiPosition = (int)v;
+                                [self relayout];
+                            }],
+            [self rowSlider:@"Opacity" min:20 max:100 val:RavenSettings::miscMenuOpacity cb:^(float v){ RavenSettings::miscMenuOpacity = v; }],
+        ]];
+        UIView* about = [self card:@"ABOUT" width:w rows:@[
+            [self rowInfo:@"Version" value:rvStr],
+            [self rowInfo:@"Brand" value:@"@KremCheats"],
+            [self rowInfo:@"Developer" value:@"@Kremityss"],
+            [self rowInfo:@"Status" value:[NSString stringWithUTF8String:Updater::status()]],
+        ]];
+        return @[iface, config, menu, about];
+    }
+
+    return @[];
+}
+
+- (void)buildFooter:(CGRect)r {
+    self.footerView = [[UIView alloc] initWithFrame:r];
+    self.footerView.backgroundColor = C_HEAD;
+
+    UIView* top = [[UIView alloc] initWithFrame:CGRectMake(0, 0, r.size.width, 1)];
+    top.backgroundColor = C_BORDER;
+    [self.footerView addSubview:top];
+
+    UIView* dot = [[UIView alloc] initWithFrame:CGRectMake(14, (r.size.height - 7)/2, 7, 7)];
+    dot.backgroundColor = [UIColor colorWithRed:0.2 green:0.9 blue:0.3 alpha:1.0];
+    dot.layer.cornerRadius = 3.5;
+    [self.footerView addSubview:dot];
+
+    UILabel* l = lbl(@"Connected", 10, C_SEC, NO);
+    l.frame = CGRectMake(26, 0, 140, r.size.height);
+    [self.footerView addSubview:l];
+
+    UILabel* r2 = lbl(@"RAVEN  •  KREMCHEATS  •  v1.0", 10, C_RED, YES);
+    r2.textAlignment = NSTextAlignmentRight;
+    r2.frame = CGRectMake(r.size.width - 230, 0, 216, r.size.height);
+    [self.footerView addSubview:r2];
+
+    [self.panelInner addSubview:self.footerView];
+}
+
+- (void)onTick {
+    if (!self.window) return;
+    CGSize b = self.window.bounds.size;
+    if (!CGSizeEqualToSize(b, self.lastBounds)) {
+        self.lastBounds = b;
+        [self relayout];
+        [self clampPanel];
+    }
+    if (!self.runtimeActive) return;
+    if (RavenSettings::espEnabled) [[RavenESP shared] render];
+    if (RavenSettings::aimEnabled) RavenAimbot::tick();
+}
+
+@end
+""")
+
+print("done - RavenEngine with multi-assembly klass() lookup")
