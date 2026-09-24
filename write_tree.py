@@ -1552,7 +1552,6 @@ void tick() {
     if (len < 0.01f) return;
     dir.x /= len; dir.y /= len; dir.z /= len;
 
-    float yaw   = atan2f(dir.x, dir.z) * 180.0f / M_PI;
     float pitch = asinf(dir.y)         * 180.0f / M_PI;
     pitch = MAX(-89.0f, MIN(89.0f, pitch));
 
@@ -3115,4 +3114,4 @@ static void forceLandscape(void) {
 @end
 """)
 
-print("done - RavenEngine with multi-assembly klass() lookup")
+print("done - RavenEngine with multi-assembly klass() lookup, yaw removed")
