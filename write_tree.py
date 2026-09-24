@@ -975,6 +975,7 @@ static void*  g_cameraCtrlClass = nullptr;
 
 static void*  g_getTeamId = nullptr;
 static void*  g_getActiveMobView = nullptr;
+static void*  g_getMainCamera = nullptr;
 static void*  g_getRenderCamera = nullptr;
 static void*  g_getHeadTransform = nullptr;
 static void*  g_getChestTransform = nullptr;
@@ -1003,6 +1004,7 @@ static void resolveHandles(void) {
     if (g_playerRootClass) {
         g_getTeamId        = IL2CPP::resolveMethod(g_playerRootClass, GameData::kMGetTeamId, 0);
         g_getActiveMobView = IL2CPP::resolveMethod(g_playerRootClass, GameData::kMGetActiveMobView, 0);
+        g_getMainCamera    = IL2CPP::resolveMethod(g_playerRootClass, GameData::kMGetMainCamera, 0);
         g_playerTransformGetter = IL2CPP::resolveMethod(g_playerRootClass, GameData::kMGetTransform, 0);
     }
     if (g_playerHealthClass) {
@@ -1202,8 +1204,11 @@ static bool worldToScreen(void* camera, Vec3 world, CGPoint* out) {
 
     int localTeam = g_getTeamId ? invokeInt(g_getTeamId, localPlayer) : 0;
 
-    void* localCamCtrl = readPtr(localPlayer, GameData::PlayerRoot::CameraController);
-    void* camera = (localCamCtrl && g_getRenderCamera) ? invokePtr(g_getRenderCamera, localCamCtrl) : nullptr;
+    void* camera = g_getMainCamera ? invokePtr(g_getMainCamera, localPlayer) : nullptr;
+    if (!camera) {
+        void* localCamCtrl = readPtr(localPlayer, GameData::PlayerRoot::CameraController);
+        camera = (localCamCtrl && g_getRenderCamera) ? invokePtr(g_getRenderCamera, localCamCtrl) : nullptr;
+    }
     if (!camera) return;
 
     Vec3 localPos = {0,0,0};
@@ -1303,6 +1308,7 @@ namespace RavenAimbot {
 static void* g_playerRootClass     = nullptr;
 static void* g_getTeamId           = nullptr;
 static void* g_getActiveMobView    = nullptr;
+static void* g_getMainCamera       = nullptr;
 static void* g_getHeadTransform    = nullptr;
 static void* g_getChestTransform   = nullptr;
 static void* g_getPosition         = nullptr;
@@ -1328,6 +1334,7 @@ static void resolveHandles(void) {
     if (g_playerRootClass) {
         g_getTeamId        = IL2CPP::resolveMethod(g_playerRootClass, GameData::kMGetTeamId, 0);
         g_getActiveMobView = IL2CPP::resolveMethod(g_playerRootClass, GameData::kMGetActiveMobView, 0);
+        g_getMainCamera    = IL2CPP::resolveMethod(g_playerRootClass, GameData::kMGetMainCamera, 0);
         g_getRootTransform = IL2CPP::resolveMethod(g_playerRootClass, GameData::kMGetTransform, 0);
     }
     if (g_cameraCtrlClass) {
@@ -1497,8 +1504,11 @@ void tick() {
 
     int localTeam = g_getTeamId ? invokeInt(g_getTeamId, localPlayer) : 0;
 
-    void* camCtrl = readPtr(localPlayer, GameData::PlayerRoot::CameraController);
-    void* camera = (camCtrl && g_getRenderCamera) ? invokePtr(g_getRenderCamera, camCtrl) : nullptr;
+    void* camera = g_getMainCamera ? invokePtr(g_getMainCamera, localPlayer) : nullptr;
+    if (!camera) {
+        void* camCtrl = readPtr(localPlayer, GameData::PlayerRoot::CameraController);
+        camera = (camCtrl && g_getRenderCamera) ? invokePtr(g_getRenderCamera, camCtrl) : nullptr;
+    }
     if (!camera) return;
 
     Vec3 aimPoint = {0,0,0};
