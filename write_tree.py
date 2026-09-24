@@ -1113,8 +1113,12 @@ static bool worldToScreen(void* camera, Vec3 world, CGPoint* out) {
     Vec3 sp = *(Vec3*)((uint8_t*)r + 0x10);
     if (sp.z < 0.01f) return false;
     CGSize scr = [UIScreen mainScreen].bounds.size;
-    out->x = sp.x;
-    out->y = scr.height - sp.y;
+    CGFloat scale = [UIScreen mainScreen].scale;
+    if (scale <= 0.0) scale = 1.0;
+    CGFloat projectedX = sp.x / scale;
+    CGFloat projectedY = sp.y / scale;
+    out->x = projectedX;
+    out->y = scr.height - projectedY;
     bool inRange = (out->x >= -100 && out->x <= scr.width + 100 &&
                     out->y >= -100 && out->y <= scr.height + 100);
 
@@ -1464,8 +1468,12 @@ static bool worldToScreen(void* cam, Vec3 w, CGPoint* out) {
     Vec3 sp = *(Vec3*)((uint8_t*)r + 0x10);
     if (sp.z < 0.01f) return false;
     CGSize scr = [UIScreen mainScreen].bounds.size;
-    out->x = sp.x;
-    out->y = scr.height - sp.y;
+    CGFloat scale = [UIScreen mainScreen].scale;
+    if (scale <= 0.0) scale = 1.0;
+    CGFloat projectedX = sp.x / scale;
+    CGFloat projectedY = sp.y / scale;
+    out->x = projectedX;
+    out->y = scr.height - projectedY;
     return YES;
 }
 
