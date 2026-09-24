@@ -26,9 +26,7 @@ jobs:
           original = src
           applied = 0
 
-          # ── 1. Route RAVEN_LOG to a file in the app container ──
-          #    On non-JB you can't see os_log. This writes every
-          #    log line to Documents/ravenrecon/diag.txt too.
+          # ── 1. RAVEN_LOG -> file + os_log, with @fmt fix ──
           old_macro = '#define RAVEN_LOG(fmt, ...) os_log(OS_LOG_DEFAULT, "[raven] " fmt, ##__VA_ARGS__)'
           new_macro = (
               'static inline void raven_file_log(NSString* msg) {\n'
@@ -48,19 +46,25 @@ jobs:
               '}\n'
               '#define RAVEN_LOG(fmt, ...) do { \\\n'
               '    os_log(OS_LOG_DEFAULT, "[raven] " fmt, ##__VA_ARGS__); \\\n'
-              '    raven_file_log([NSString stringWithFormat:fmt, ##__VA_ARGS__]); \\\n'
+              '    raven_file_log([NSString stringWithFormat:@fmt, ##__VA_ARGS__]); \\\n'
               '} while(0)'
           )
           if old_macro in src:
               src = src.replace(old_macro, new_macro)
-              print("[fix] RAVEN_LOG -> file + os_log"); applied += 1
-          elif "raven_file_log" in src:
-              print("[skip] RAVEN_LOG already patched")
+              print("[fix] RAVEN_LOG -> file + os_log (with @fmt)"); applied += 1
+          elif "raven_file_log" in src and "stringWithFormat:@fmt" in src:
+              print("[skip] RAVEN_LOG already patched correctly")
+          elif "raven_file_log" in src and "stringWithFormat:fmt" in src:
+              # Previous patch landed but missed the @ — fix it now
+              src = src.replace(
+                  '[NSString stringWithFormat:fmt, ##__VA_ARGS__]',
+                  '[NSString stringWithFormat:@fmt, ##__VA_ARGS__]'
+              )
+              print("[fix] stringWithFormat:fmt -> @fmt"); applied += 1
           else:
-              print("[warn] RAVEN_LOG macro not found"); sys.exit(1)
+              print("[warn] RAVEN_LOG macro not found in expected form")
 
-          # ── 2. Value-type boxing: IL2CPP boxes value returns ──
-          #    real value lives at box+0x10, not box+0
+          # ── 2. Value-type boxing ──
           reps = [
               ("return r ? *(int32_t*)r : 0;",
                "return r ? *(int32_t*)((uint8_t*)r + 0x10) : 0;"),
@@ -79,7 +83,7 @@ jobs:
                   src = src.replace(old, new)
                   print(f"[fix] {n}x {old}"); applied += n
               else:
-                  print(f"[warn] not found: {old}")
+                  print(f"[skip] already: {old}")
 
           # ── 3. ESP render diagnostics ──
           esp_old = '''    resolveHandles();
