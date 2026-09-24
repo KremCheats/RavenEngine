@@ -20,6 +20,22 @@ jobs:
           echo "--- Raven.plist ---"
           cat Raven.plist
 
+      - name: Create control file
+        run: |
+          cat > control <<'EOF'
+          Package: com.mahi.raven
+          Name: Raven
+          Version: 1.0.0
+          Architecture: iphoneos-arm
+          Description: Raven — Combat Master enhancement
+          Maintainer: mahi
+          Author: mahi
+          Section: Tweaks
+          Depends: firmware (>= 14.0)
+          EOF
+          echo "--- control ---"
+          cat control
+
       - name: Patch IL2CPP boxing + file diagnostics
         run: |
           python3 - <<'PYEOF'
