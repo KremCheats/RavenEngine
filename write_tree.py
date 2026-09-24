@@ -113,11 +113,19 @@ namespace GameData {
     }
 
     namespace PlayerMovement {
-        // NOTE: 0x60 / 0x68 were unverified and caused a crash. Do NOT use
-        // until the movdump confirms real offsets. Placeholder only.
-        constexpr uint32_t VerticalRotation  = 0x60;
-        constexpr uint32_t HorRotationAngles = 0x68;
-        constexpr uint32_t HeadRotation      = 0x70;
+        // NOTE: 0x60 / 0x68 were the pre-crash write targets. A full
+        // movdump capture window (30 frames) showed both slots frozen
+        // at 9.920 / 0.000 while the camera panned — they do not hold
+        // rotation. They are retained here only as historical markers.
+        // Do NOT write to them.
+        //
+        // Real rotation fields live somewhere in PlayerMovement,
+        // PlayerRoot, or CameraController and are being identified by
+        // the three-struct movdump in Aimbot::tick(). Do not enable the
+        // write path until those offsets are confirmed by a capture.
+        constexpr uint32_t UNVERIFIED_VerticalRotation  = 0x60;
+        constexpr uint32_t UNVERIFIED_HorRotationAngles = 0x68;
+        constexpr uint32_t UNVERIFIED_HeadRotation      = 0x70;
     }
 
     static const char* kMGetHealth        = "get_Health";
@@ -1530,6 +1538,29 @@ static bool worldToScreen(void* cam, Vec3 w, CGSize scr, CGPoint* out) {
     return YES;
 }
 
+// -------------------------------------------------------------------
+// Dump helper — formats 24 consecutive floats as three log lines.
+// Used by the movdump block to compare the same memory window across
+// multiple candidate structs (PlayerMovement, PlayerRoot, camCtrl).
+// -------------------------------------------------------------------
+static void dumpFloats(const char* label, void* base, uint32_t lo, uint32_t hi) {
+    (void)hi; // window is fixed at 24 floats (3 × 8) to match prior format
+    if (!base) return;
+    uint8_t* b = (uint8_t*)base;
+    RAVEN_LOG("movdump %s 0x%02X: %.3f %.3f %.3f %.3f | %.3f %.3f %.3f %.3f",
+        label, lo,
+        *(float*)(b+lo+0x00), *(float*)(b+lo+0x04), *(float*)(b+lo+0x08), *(float*)(b+lo+0x0C),
+        *(float*)(b+lo+0x10), *(float*)(b+lo+0x14), *(float*)(b+lo+0x18), *(float*)(b+lo+0x1C));
+    RAVEN_LOG("movdump %s 0x%02X: %.3f %.3f %.3f %.3f | %.3f %.3f %.3f %.3f",
+        label, lo+0x20,
+        *(float*)(b+lo+0x20), *(float*)(b+lo+0x24), *(float*)(b+lo+0x28), *(float*)(b+lo+0x2C),
+        *(float*)(b+lo+0x30), *(float*)(b+lo+0x34), *(float*)(b+lo+0x38), *(float*)(b+lo+0x3C));
+    RAVEN_LOG("movdump %s 0x%02X: %.3f %.3f %.3f %.3f | %.3f %.3f %.3f %.3f",
+        label, lo+0x40,
+        *(float*)(b+lo+0x40), *(float*)(b+lo+0x44), *(float*)(b+lo+0x48), *(float*)(b+lo+0x4C),
+        *(float*)(b+lo+0x50), *(float*)(b+lo+0x54), *(float*)(b+lo+0x58), *(float*)(b+lo+0x5C));
+}
+
 static void* findBestTarget(void* localPlayer, int localTeam, void* camera,
                             Vec3* outAimPoint)
 {
@@ -1637,8 +1668,34 @@ void setEnabled(bool on) {
 //
 // This version detects targets and computes desired pitch/yaw but does
 // NOT write anything to the game. The movdump logs the surrounding
-// float bytes so we can identify the real rotation fields. Once we
-// know them, flip kWriteEnabled and use the confirmed offsets.
+// float bytes across three candidate structs so we can identify the
+// real rotation fields. Once we know them, flip kWriteEnabled and use
+// the confirmed offsets.
+//
+// movdump protocol (this build):
+//   · Window arms on local player change; stays open for 8 seconds.
+//   · Each tick dumps 24 consecutive floats (0x30..0x8C) from:
+//       mov  = PlayerMovement   (via PlayerRoot + 0xB0)
+//       root = PlayerRoot       (the player object itself)
+//       cam  = CameraController (via PlayerRoot + 0x48)
+//   · pan-probe logs the screen position of a fixed world point — if it
+//     moves across the capture, the camera actually panned and the dump
+//     window is valid.
+//
+// Capture procedure:
+//   1. Enter a match, stand still, enable aim.
+//   2. Within the 8s window: pan slowly left ~2s, right ~2s, up ~2s,
+//      down ~2s. Do not switch targets.
+//   3. Preserve all movdump and pan-probe lines.
+//
+// Reading the result:
+//   · Exactly two floats in exactly one label block track the pan → yaw.
+//   · Two more track tilt → pitch.
+//   · Magnitudes in [-pi, pi] → radians; convert on the write side.
+//   · Magnitudes in [-180, 180] → degrees; current math applies.
+//   · Nothing tracks pan in any block → rotation lives elsewhere
+//     (camera transform / cached rotation); resolve a setter via IL2CPP
+//     and invoke it instead of writing bytes.
 // ============================================================
 
 void tick() {
@@ -1665,6 +1722,58 @@ void tick() {
         camera = invokePtr(g_getMainCamera, localPlayer);
     if (!ptrOk(camera)) return;
 
+    // -----------------------------------------------------------------
+    // Read the movement pointer up front. The diagnostic dump below
+    // needs it even when no target is visible, so this read happens
+    // before target acquisition. Pointer is gated by ptrOk everywhere.
+    // -----------------------------------------------------------------
+    void* movement = readPtr(localPlayer, GameData::PlayerRoot::PlayerMovement);
+    bool movementOk = ptrOk(movement);
+    if (!movementOk) {
+        RAVEN_LOG("aim: movement pointer out of range: %p", movement);
+    }
+
+    // ---- movdump: identify the real rotation fields ----
+    // Armed on local player change; runs for 8 seconds. Dumps the same
+    // 24-float window from three candidate structs so a slow pan
+    // identifies the owner. pan-probe logs the screen position of a
+    // fixed world point — if it moves, the camera actually panned and
+    // the capture window is valid.
+    static double g_dumpUntil   = 0.0;
+    static void*  g_dumpLocal   = nullptr;
+    static Vec3   g_dumpProbe   = {0,0,0};
+    static bool   g_dumpProbeOk = false;
+
+    if (localPlayer != g_dumpLocal) {
+        g_dumpLocal   = localPlayer;
+        g_dumpUntil   = CACurrentMediaTime() + 8.0;
+        g_dumpProbeOk = false;
+    }
+
+    if (CACurrentMediaTime() < g_dumpUntil) {
+        if (!g_dumpProbeOk) {
+            void* lt = g_getRootTransform ? invokePtr(g_getRootTransform, localPlayer) : nullptr;
+            if (ptrOk(lt) && readTransformPos(lt, &g_dumpProbe)) {
+                g_dumpProbeOk = true;
+            }
+        }
+
+        if (movementOk) dumpFloats("mov", movement, 0x30, 0x8C);
+        dumpFloats("root", localPlayer, 0x30, 0x8C);
+        void* camCtrl = readPtr(localPlayer, GameData::PlayerRoot::CameraController);
+        if (ptrOk(camCtrl)) dumpFloats("cam", camCtrl, 0x30, 0x8C);
+
+        if (g_dumpProbeOk) {
+            CGPoint probe;
+            if (worldToScreen(camera, g_dumpProbe, [UIScreen mainScreen].bounds.size, &probe)) {
+                RAVEN_LOG("pan-probe: (%.1f, %.1f)", probe.x, probe.y);
+            } else {
+                RAVEN_LOG("pan-probe: offscreen");
+            }
+        }
+    }
+
+    // ---- target acquisition and aim math ----
     Vec3 aimPoint = {0,0,0};
     void* target = findBestTarget(localPlayer, localTeam, camera, &aimPoint);
     if (!target) return;
@@ -1684,40 +1793,18 @@ void tick() {
     float wantPitch = -atan2f(dir.y, horiz) * 180.0f / (float)M_PI;
     wantPitch = MAX(-89.0f, MIN(89.0f, wantPitch));
 
-    void* movement = readPtr(localPlayer, GameData::PlayerRoot::PlayerMovement);
-    if (!ptrOk(movement)) {
-        RAVEN_LOG("aim: movement pointer out of range: %p", movement);
-        return;
-    }
-
-    // ---- movdump: identify the real rotation fields ----
-    // Watch these logs while panning the camera slowly. The float offset
-    // that tracks your horizontal pan is yaw. The one that tracks tilt is
-    // pitch. Values may be in degrees or radians; the magnitude tells us.
-    static int mdump = 0;
-    if (mdump < 30) {
-        uint8_t* b = (uint8_t*)movement;
-        RAVEN_LOG("movdump 0x30: %.3f %.3f %.3f %.3f | %.3f %.3f %.3f %.3f",
-            *(float*)(b+0x30), *(float*)(b+0x34), *(float*)(b+0x38), *(float*)(b+0x3C),
-            *(float*)(b+0x40), *(float*)(b+0x44), *(float*)(b+0x48), *(float*)(b+0x4C));
-        RAVEN_LOG("movdump 0x50: %.3f %.3f %.3f %.3f | %.3f %.3f %.3f %.3f",
-            *(float*)(b+0x50), *(float*)(b+0x54), *(float*)(b+0x58), *(float*)(b+0x5C),
-            *(float*)(b+0x60), *(float*)(b+0x64), *(float*)(b+0x68), *(float*)(b+0x6C));
-        RAVEN_LOG("movdump 0x70: %.3f %.3f %.3f %.3f | %.3f %.3f %.3f %.3f",
-            *(float*)(b+0x70), *(float*)(b+0x74), *(float*)(b+0x78), *(float*)(b+0x7C),
-            *(float*)(b+0x80), *(float*)(b+0x84), *(float*)(b+0x88), *(float*)(b+0x8C));
-        mdump++;
-    }
-
     RAVEN_LOG("aim-dbg: wantPitch=%.2f wantYaw=%.2f src=(%.1f,%.1f,%.1f) aim=(%.1f,%.1f,%.1f)",
               wantPitch, wantYaw, src.x, src.y, src.z, aimPoint.x, aimPoint.y, aimPoint.z);
 
     // ---- WRITE PATH: disabled until offsets confirmed ----
     // Flip to true ONLY after movdump identifies the real offsets.
+    // The previous offsets (0x60 / 0x68 in PlayerMovement) are known-wrong
+    // and must not be reused. See GameData::PlayerMovement::UNVERIFIED_*.
     const bool kWriteEnabled = false;
     if (!kWriteEnabled) return;
 
     // When enabled, replace the offsets below with the ones movdump confirms.
+    // Offsets must live in the struct the dump proves owns rotation.
     //
     //   float* pitchField = (float*)((uint8_t*)movement + 0x??);
     //   float* yawField   = (float*)((uint8_t*)movement + 0x??);
@@ -3269,4 +3356,4 @@ static void forceLandscape(void) {
 @end
 """)
 
-print("done - CFLAGS fix, aim read-only, esp ptr guard")
+print("done - movdump v2 (three-struct), pan-probe, 8s window, UNVERIFIED offsets")
