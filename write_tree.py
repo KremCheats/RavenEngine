@@ -112,20 +112,13 @@ namespace GameData {
         constexpr uint32_t IsRealPlayer     = 0x132;
     }
 
+    // CONFIRMED ROTATION OFFSETS from movdump capture 2026-09-24.
+    // The floats at 0x70 and 0x74 track camera pitch and yaw respectively.
+    // 0x60 / 0x68 were the old unverified write targets and must not be used.
     namespace PlayerMovement {
-        // NOTE: 0x60 / 0x68 were the pre-crash write targets. A full
-        // movdump capture window (30 frames) showed both slots frozen
-        // at 9.920 / 0.000 while the camera panned — they do not hold
-        // rotation. They are retained here only as historical markers.
-        // Do NOT write to them.
-        //
-        // Real rotation fields live somewhere in PlayerMovement,
-        // PlayerRoot, or CameraController and are being identified by
-        // the three-struct movdump in Aimbot::tick(). Do not enable the
-        // write path until those offsets are confirmed by a capture.
-        constexpr uint32_t UNVERIFIED_VerticalRotation  = 0x60;
-        constexpr uint32_t UNVERIFIED_HorRotationAngles = 0x68;
-        constexpr uint32_t UNVERIFIED_HeadRotation      = 0x70;
+        constexpr uint32_t VerticalRotation  = 0x70;   // pitch, degrees
+        constexpr uint32_t HorRotationAngles = 0x74;   // yaw, degrees
+        constexpr uint32_t HeadRotation      = 0x78;   // unused
     }
 
     static const char* kMGetHealth        = "get_Health";
@@ -1659,43 +1652,11 @@ void setEnabled(bool on) {
 }
 
 // ============================================================
-// READ-ONLY OBSERVER MODE
+// ACTIVE AIMBOT — offsets confirmed by movdump capture
 // ============================================================
-// The previous build wrote to PlayerMovement+0x60 / +0x68, which read
-// back as zero — wrong offsets. Writing to unverified offsets inside
-// a live IL2CPP struct corrupted a pointer Unity later dereferenced
-// during render, causing EXC_BAD_ACCESS in UnityRepaint.
-//
-// This version detects targets and computes desired pitch/yaw but does
-// NOT write anything to the game. The movdump logs the surrounding
-// float bytes across three candidate structs so we can identify the
-// real rotation fields. Once we know them, flip kWriteEnabled and use
-// the confirmed offsets.
-//
-// movdump protocol (this build):
-//   · Window arms on local player change; stays open for 8 seconds.
-//   · Each tick dumps 24 consecutive floats (0x30..0x8C) from:
-//       mov  = PlayerMovement   (via PlayerRoot + 0xB0)
-//       root = PlayerRoot       (the player object itself)
-//       cam  = CameraController (via PlayerRoot + 0x48)
-//   · pan-probe logs the screen position of a fixed world point — if it
-//     moves across the capture, the camera actually panned and the dump
-//     window is valid.
-//
-// Capture procedure:
-//   1. Enter a match, stand still, enable aim.
-//   2. Within the 8s window: pan slowly left ~2s, right ~2s, up ~2s,
-//      down ~2s. Do not switch targets.
-//   3. Preserve all movdump and pan-probe lines.
-//
-// Reading the result:
-//   · Exactly two floats in exactly one label block track the pan → yaw.
-//   · Two more track tilt → pitch.
-//   · Magnitudes in [-pi, pi] → radians; convert on the write side.
-//   · Magnitudes in [-180, 180] → degrees; current math applies.
-//   · Nothing tracks pan in any block → rotation lives elsewhere
-//     (camera transform / cached rotation); resolve a setter via IL2CPP
-//     and invoke it instead of writing bytes.
+// Pitch: PlayerMovement + 0x70 (float, degrees)
+// Yaw:   PlayerMovement + 0x74 (float, degrees)
+// The old 0x60 / 0x68 targets were wrong; do not use them.
 // ============================================================
 
 void tick() {
@@ -1723,54 +1684,12 @@ void tick() {
     if (!ptrOk(camera)) return;
 
     // -----------------------------------------------------------------
-    // Read the movement pointer up front. The diagnostic dump below
-    // needs it even when no target is visible, so this read happens
-    // before target acquisition. Pointer is gated by ptrOk everywhere.
+    // Read the movement pointer. This is the struct that holds rotation.
     // -----------------------------------------------------------------
     void* movement = readPtr(localPlayer, GameData::PlayerRoot::PlayerMovement);
-    bool movementOk = ptrOk(movement);
-    if (!movementOk) {
+    if (!ptrOk(movement)) {
         RAVEN_LOG("aim: movement pointer out of range: %p", movement);
-    }
-
-    // ---- movdump: identify the real rotation fields ----
-    // Armed on local player change; runs for 8 seconds. Dumps the same
-    // 24-float window from three candidate structs so a slow pan
-    // identifies the owner. pan-probe logs the screen position of a
-    // fixed world point — if it moves, the camera actually panned and
-    // the capture window is valid.
-    static double g_dumpUntil   = 0.0;
-    static void*  g_dumpLocal   = nullptr;
-    static Vec3   g_dumpProbe   = {0,0,0};
-    static bool   g_dumpProbeOk = false;
-
-    if (localPlayer != g_dumpLocal) {
-        g_dumpLocal   = localPlayer;
-        g_dumpUntil   = CACurrentMediaTime() + 8.0;
-        g_dumpProbeOk = false;
-    }
-
-    if (CACurrentMediaTime() < g_dumpUntil) {
-        if (!g_dumpProbeOk) {
-            void* lt = g_getRootTransform ? invokePtr(g_getRootTransform, localPlayer) : nullptr;
-            if (ptrOk(lt) && readTransformPos(lt, &g_dumpProbe)) {
-                g_dumpProbeOk = true;
-            }
-        }
-
-        if (movementOk) dumpFloats("mov", movement, 0x30, 0x8C);
-        dumpFloats("root", localPlayer, 0x30, 0x8C);
-        void* camCtrl = readPtr(localPlayer, GameData::PlayerRoot::CameraController);
-        if (ptrOk(camCtrl)) dumpFloats("cam", camCtrl, 0x30, 0x8C);
-
-        if (g_dumpProbeOk) {
-            CGPoint probe;
-            if (worldToScreen(camera, g_dumpProbe, [UIScreen mainScreen].bounds.size, &probe)) {
-                RAVEN_LOG("pan-probe: (%.1f, %.1f)", probe.x, probe.y);
-            } else {
-                RAVEN_LOG("pan-probe: offscreen");
-            }
-        }
+        return;
     }
 
     // ---- target acquisition and aim math ----
@@ -1796,33 +1715,23 @@ void tick() {
     RAVEN_LOG("aim-dbg: wantPitch=%.2f wantYaw=%.2f src=(%.1f,%.1f,%.1f) aim=(%.1f,%.1f,%.1f)",
               wantPitch, wantYaw, src.x, src.y, src.z, aimPoint.x, aimPoint.y, aimPoint.z);
 
-    // ---- WRITE PATH: disabled until offsets confirmed ----
-    // Flip to true ONLY after movdump identifies the real offsets.
-    // The previous offsets (0x60 / 0x68 in PlayerMovement) are known-wrong
-    // and must not be reused. See GameData::PlayerMovement::UNVERIFIED_*.
-    const bool kWriteEnabled = false;
-    if (!kWriteEnabled) return;
+    // ---- WRITE PATH ----
+    float* pitchField = (float*)((uint8_t*)movement + GameData::PlayerMovement::VerticalRotation);
+    float* yawField   = (float*)((uint8_t*)movement + GameData::PlayerMovement::HorRotationAngles);
 
-    // When enabled, replace the offsets below with the ones movdump confirms.
-    // Offsets must live in the struct the dump proves owns rotation.
-    //
-    //   float* pitchField = (float*)((uint8_t*)movement + 0x??);
-    //   float* yawField   = (float*)((uint8_t*)movement + 0x??);
-    //   float curPitch = *pitchField;
-    //   float curYaw   = *yawField;
-    //   float dYaw = wantYaw - curYaw;
-    //   while (dYaw >  180.0f) dYaw -= 360.0f;
-    //   while (dYaw < -180.0f) dYaw += 360.0f;
-    //   float smooth = MAX(1.0f, RavenSettings::aimSmooth);
-    //   float nextPitch = curPitch + (wantPitch - curPitch) / smooth;
-    //   float nextYaw   = curYaw   + dYaw / smooth;
-    //   if (g_setVerticalRotation) {
-    //       void* args[1] = { &nextPitch };
-    //       IL2CPP::invokeMethod(g_setVerticalRotation, movement, args);
-    //   } else {
-    //       *pitchField = nextPitch;
-    //   }
-    //   *yawField = nextYaw;
+    float curPitch = *pitchField;
+    float curYaw   = *yawField;
+
+    float dYaw = wantYaw - curYaw;
+    while (dYaw >  180.0f) dYaw -= 360.0f;
+    while (dYaw < -180.0f) dYaw += 360.0f;
+
+    float smooth = MAX(1.0f, RavenSettings::aimSmooth);
+    float nextPitch = curPitch + (wantPitch - curPitch) / smooth;
+    float nextYaw   = curYaw   + dYaw / smooth;
+
+    *pitchField = nextPitch;
+    *yawField   = nextYaw;
 }
 
 }
@@ -3356,4 +3265,4 @@ static void forceLandscape(void) {
 @end
 """)
 
-print("done - movdump v2 (three-struct), pan-probe, 8s window, UNVERIFIED offsets")
+print("done - aimbot write path enabled with confirmed offsets 0x70/0x74")
