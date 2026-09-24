@@ -1916,9 +1916,9 @@ static void forceLandscape(void) {
     self.window.backgroundColor = [UIColor clearColor];
     self.window.rootViewController = [UIViewController new];
     self.window.rootViewController.view.backgroundColor = [UIColor clearColor];
-    self.window.rootViewController.view.userInteractionEnabled = NO;
-    self.window.hidden = NO;
+    self.window.rootViewController.view.userInteractionEnabled = YES;
     [self attachToScene];
+    self.window.hidden = NO;
 
     if (@available(iOS 16.0, *)) {
         UIWindowScene* scene = self.window.windowScene;
@@ -1946,6 +1946,10 @@ static void forceLandscape(void) {
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(onGeometryChanged)
                                                  name:@"UIWindowSceneDidUpdateCoordinateSpaceNotification"
+                                               object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(onGeometryChanged)
+                                                 name:UISceneDidActivateNotification
                                                object:nil];
 
     self.tickTimer = [NSTimer scheduledTimerWithTimeInterval:1.0/30.0
@@ -1975,6 +1979,8 @@ static void forceLandscape(void) {
 - (void)onGeometryChanged {
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.08 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
+        [self attachToScene];
+        self.window.hidden = NO;
         [self relayout];
         [self clampPanel];
     });
