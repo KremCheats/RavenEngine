@@ -20,22 +20,6 @@ jobs:
           echo "--- Raven.plist ---"
           cat Raven.plist
 
-      - name: Create control file
-        run: |
-          cat > control <<'EOF'
-          Package: com.mahi.raven
-          Name: Raven
-          Version: 1.0.0
-          Architecture: iphoneos-arm
-          Description: Raven — Combat Master enhancement
-          Maintainer: mahi
-          Author: mahi
-          Section: Tweaks
-          Depends: firmware (>= 14.0)
-          EOF
-          echo "--- control ---"
-          cat control
-
       - name: Patch IL2CPP boxing + file diagnostics
         run: |
           python3 - <<'PYEOF'
@@ -189,36 +173,37 @@ jobs:
       - name: Install ldid
         run: brew install ldid
 
-      - name: Build
+      - name: Build dylib
         run: |
           export THEOS=${{ github.workspace }}/theos
           export PATH=$THEOS/bin:$PATH
           make clean
-          make package FINALPACKAGE=1
+          make
 
-      - name: Verify patches landed
+      - name: Verify dylib
         run: |
-          DYLIB=$(find .theos -name 'Raven.dylib' -type f | head -n1)
+          DYLIB=".theos/obj/Raven.dylib"
+          if [ ! -f "$DYLIB" ]; then
+            echo "FAIL: $DYLIB not built"
+            ls -la .theos/obj/ 2>/dev/null || true
+            exit 1
+          fi
           echo "dylib: $DYLIB"
+          ls -la "$DYLIB"
           lipo -info "$DYLIB" || true
           otool -l "$DYLIB" | grep -A1 LC_UUID || true
           echo "--- checks ---"
-          if strings "$DYLIB" | grep -q "ravenrecon/diag.txt"; then
-            echo "OK: file diagnostics present"
-          else
-            echo "FAIL: file diagnostics missing"; exit 1
-          fi
-          if strings "$DYLIB" | grep -q "esp: pc="; then
-            echo "OK: ESP logging present"
-          else
-            echo "FAIL: ESP logging missing"; exit 1
-          fi
-          grep -c "uint8_t\*\)r + 0x10" Src/ESP.mm    | xargs -I{} echo "ESP boxing fixes: {}"
-          grep -c "uint8_t\*\)r + 0x10" Src/Aimbot.mm | xargs -I{} echo "Aim boxing fixes: {}"
+          strings "$DYLIB" | grep -q "diag.txt" && echo "OK: diag.txt string present" || { echo "FAIL: diag.txt missing"; exit 1; }
+          strings "$DYLIB" | grep -q "raven.diag" && echo "OK: diag queue label present" || { echo "FAIL: raven.diag missing"; exit 1; }
+          strings "$DYLIB" | grep -q "esp: pc=" && echo "OK: ESP logging present" || { echo "FAIL: ESP logging missing"; exit 1; }
+          strings "$DYLIB" | grep -q "aim: pc=" && echo "OK: Aimbot logging present" || { echo "FAIL: Aimbot logging missing"; exit 1; }
+          echo "--- boxing fixes ---"
+          grep -c "uint8_t\*\)r + 0x10" Src/ESP.mm    | xargs -I{} echo "ESP: {}"
+          grep -c "uint8_t\*\)r + 0x10" Src/Aimbot.mm | xargs -I{} echo "Aim: {}"
 
       - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
           name: raven-dylib
-          path: ${{ github.workspace }}/.theos/_/Library/MobileSubstrate/DynamicLibraries/Raven.dylib
+          path: .theos/obj/Raven.dylib
           if-no-files-found: error
