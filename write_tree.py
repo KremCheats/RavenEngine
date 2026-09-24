@@ -15,8 +15,8 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = Raven
 Raven_FILES = Raven.mm Src/IL2CPP.mm Src/ESP.mm Src/Aimbot.mm Src/Menu.mm Src/Updater.mm Src/Settings.mm
-Raven_CFLAGS = -fobjc-arc -I./Src -std=c++17 -Wno-unused-function -Wno-deprecated-declarations
-Raven_CCFLAGS = -fobjc-arc -I./Src -std=c++17
+Raven_CFLAGS = -fobjc-arc -I./Src -std=c++17 -Wno-unused-function -Wno-deprecated-declarations -Wno-unused-variable
+Raven_CCFLAGS = -fobjc-arc -I./Src -std=c++17 -Wno-unused-variable
 Raven_FRAMEWORKS = UIKit Foundation QuartzCore CoreGraphics
 
 include $(THEOS_MAKE_PATH)/tweak.mk
@@ -3269,4 +3269,4 @@ static void forceLandscape(void) {
 @end
 """)
 
-print("done - aim read-only (movdump), esp ptr guard, no crash")
+print("done - CFLAGS fix, aim read-only, esp ptr guard")
