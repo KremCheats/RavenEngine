@@ -113,6 +113,8 @@ namespace GameData {
     }
 
     namespace PlayerMovement {
+        // NOTE: 0x60 / 0x68 were unverified and caused a crash. Do NOT use
+        // until the movdump confirms real offsets. Placeholder only.
         constexpr uint32_t VerticalRotation  = 0x60;
         constexpr uint32_t HorRotationAngles = 0x68;
         constexpr uint32_t HeadRotation      = 0x70;
@@ -1014,6 +1016,14 @@ static void*  g_cameraClass = nullptr;
 static void*  g_playerTransformGetter = nullptr;
 static bool   g_resolved = false;
 
+// Pointer sanity check. iOS user-space pointers on arm64 are typically in
+// the 0x100000000 - 0x8000000000 range for heap allocations. Anything
+// outside is either null, tagged, or corrupted and will crash if deref'd.
+static inline bool ptrOk(void* p) {
+    uintptr_t v = (uintptr_t)p;
+    return v >= 0x100000000ULL && v <= 0x8000000000ULL;
+}
+
 static void resolveHandles(void) {
     if (g_resolved) return;
     void* img = IL2CPP::gameImage();
@@ -1282,14 +1292,14 @@ static bool worldToScreen(void* camera, Vec3 world, CGSize scr, CGPoint* out) {
     if (!g_playerRootClass) return;
 
     void* localPlayer = IL2CPP::readStaticFieldObject(g_playerRootClass, GameData::kFldMyPlayer);
-    if (!localPlayer) return;
+    if (!ptrOk(localPlayer)) return;
 
     void* list = IL2CPP::readStaticFieldObject(g_playerRootClass, GameData::kFldAllPlayers);
-    if (!list) return;
+    if (!ptrOk(list)) return;
 
     void* itemsArray = readPtr(list, GameData::List::Items);
     int   count      = readInt32(list, GameData::List::Size);
-    if (!itemsArray || count <= 0 || count > 200) return;
+    if (!ptrOk(itemsArray) || count <= 0 || count > 200) return;
     void** items = (void**)((uint8_t*)itemsArray + GameData::Array::Data);
 
     int localTeam = g_getTeamId ? invokeInt(g_getTeamId, localPlayer) : 0;
@@ -1299,12 +1309,12 @@ static bool worldToScreen(void* camera, Vec3 world, CGSize scr, CGPoint* out) {
     void* camera = nullptr;
     {
         void* localCamCtrl = readPtr(localPlayer, GameData::PlayerRoot::CameraController);
-        if (localCamCtrl && g_getRenderCamera)
+        if (ptrOk(localCamCtrl) && g_getRenderCamera)
             camera = invokePtr(g_getRenderCamera, localCamCtrl);
     }
-    if (!camera && g_getMainCamera)
+    if (!ptrOk(camera) && g_getMainCamera)
         camera = invokePtr(g_getMainCamera, localPlayer);
-    if (!camera) return;
+    if (!ptrOk(camera)) return;
 
     static bool cam_logged = false;
     if (!cam_logged) {
@@ -1322,7 +1332,7 @@ static bool worldToScreen(void* camera, Vec3 world, CGSize scr, CGPoint* out) {
 
     Vec3 localPos = {0,0,0};
     void* localTransform = g_playerTransformGetter ? invokePtr(g_playerTransformGetter, localPlayer) : nullptr;
-    if (localTransform) readTransformPos(localTransform, &localPos);
+    if (ptrOk(localTransform)) readTransformPos(localTransform, &localPos);
 
     // Screen space = the layer/window space, NOT UIScreen, so both agree.
     CGSize screen = self.window.bounds.size;
@@ -1331,25 +1341,27 @@ static bool worldToScreen(void* camera, Vec3 world, CGSize scr, CGPoint* out) {
     for (int i = 0; i < count; i++) {
         void* p = items[i];
         if (!p || p == localPlayer) continue;
+        if (!ptrOk(p)) continue;
 
         int team = g_getTeamId ? invokeInt(g_getTeamId, p) : 0;
         if (team != 0 && team == localTeam) continue;
 
         void* healthComp = readPtr(p, GameData::PlayerRoot::PlayerHealth);
-        if (healthComp) {
+        if (ptrOk(healthComp)) {
             if (g_getIsDead && invokeBool(g_getIsDead, healthComp)) continue;
             if (g_getIsDowned && invokeBool(g_getIsDowned, healthComp)) continue;
         }
 
         void* rootTransform = g_playerTransformGetter ? invokePtr(g_playerTransformGetter, p) : nullptr;
         Vec3 feetPos = {0,0,0};
-        if (!rootTransform || !readTransformPos(rootTransform, &feetPos)) continue;
+        if (!ptrOk(rootTransform) || !readTransformPos(rootTransform, &feetPos)) continue;
 
         Vec3 headPos = feetPos;
         void* mobView = (g_getActiveMobView) ? invokePtr(g_getActiveMobView, p) : nullptr;
-        void* headTransform = mobView && g_getHeadTransform
+        if (!ptrOk(mobView)) mobView = nullptr;
+        void* headTransform = (mobView && g_getHeadTransform)
             ? invokePtr(g_getHeadTransform, mobView) : nullptr;
-        if (!headTransform || !readTransformPos(headTransform, &headPos)) {
+        if (!ptrOk(headTransform) || !readTransformPos(headTransform, &headPos)) {
             headPos.y += 1.8f;
         }
 
@@ -1372,7 +1384,7 @@ static bool worldToScreen(void* camera, Vec3 world, CGSize scr, CGPoint* out) {
         }
 
         NSMutableString* line = [NSMutableString string];
-        if (RavenSettings::espHealth && healthComp && g_getHealth) {
+        if (RavenSettings::espHealth && ptrOk(healthComp) && g_getHealth) {
             float hp = invokeFloat(g_getHealth, healthComp);
             [line appendFormat:@"%.0f ", hp];
         }
@@ -1431,6 +1443,12 @@ static void* g_movementClass       = nullptr;
 static bool  g_resolved            = false;
 static void* g_lockedTarget        = nullptr;
 static double g_lockedSince        = 0.0;
+
+// Same pointer sanity check as ESP.
+static inline bool ptrOk(void* p) {
+    uintptr_t v = (uintptr_t)p;
+    return v >= 0x100000000ULL && v <= 0x8000000000ULL;
+}
 
 static void resolveHandles(void) {
     if (g_resolved) return;
@@ -1516,11 +1534,11 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera,
                             Vec3* outAimPoint)
 {
     void* list = IL2CPP::readStaticFieldObject(g_playerRootClass, GameData::kFldAllPlayers);
-    if (!list) return nullptr;
+    if (!ptrOk(list)) return nullptr;
 
     void* itemsArray = readPtr(list, GameData::List::Items);
     int   count      = readInt32(list, GameData::List::Size);
-    if (!itemsArray || count <= 0) return nullptr;
+    if (!ptrOk(itemsArray) || count <= 0) return nullptr;
     void** items = (void**)((uint8_t*)itemsArray + GameData::Array::Data);
 
     CGSize scr = [UIScreen mainScreen].bounds.size;
@@ -1534,21 +1552,23 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera,
     bool lockedVisible = false;
     Vec3 localPos = {0,0,0};
     void* localTransform = g_getRootTransform ? invokePtr(g_getRootTransform, localPlayer) : nullptr;
-    if (localTransform) readTransformPos(localTransform, &localPos);
+    if (ptrOk(localTransform)) readTransformPos(localTransform, &localPos);
 
     for (int i = 0; i < count; i++) {
         void* p = items[i];
         if (!p || p == localPlayer) continue;
+        if (!ptrOk(p)) continue;
 
         int team = g_getTeamId ? invokeInt(g_getTeamId, p) : 0;
         if (team != 0 && team == localTeam) continue;
 
         void* targetTransform = g_getRootTransform ? invokePtr(g_getRootTransform, p) : nullptr;
         Vec3 targetPos = {0,0,0};
-        if (!targetTransform || !readTransformPos(targetTransform, &targetPos)) continue;
+        if (!ptrOk(targetTransform) || !readTransformPos(targetTransform, &targetPos)) continue;
 
         Vec3 bonePos = targetPos;
         void* mobView = g_getActiveMobView ? invokePtr(g_getActiveMobView, p) : nullptr;
+        if (!ptrOk(mobView)) mobView = nullptr;
         void* bone = nullptr;
         if (mobView) {
             if (RavenSettings::aimBone == 0) {
@@ -1557,7 +1577,7 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera,
                 bone = g_getChestTransform ? invokePtr(g_getChestTransform, mobView) : nullptr;
             }
         }
-        if (!bone || !readTransformPos(bone, &bonePos)) {
+        if (!ptrOk(bone) || !readTransformPos(bone, &bonePos)) {
             bonePos.y += (RavenSettings::aimBone == 0) ? 1.65f : 1.15f;
         }
         Vec3 delta = {targetPos.x - localPos.x, targetPos.y - localPos.y, targetPos.z - localPos.z};
@@ -1607,38 +1627,50 @@ void setEnabled(bool on) {
     }
 }
 
+// ============================================================
+// READ-ONLY OBSERVER MODE
+// ============================================================
+// The previous build wrote to PlayerMovement+0x60 / +0x68, which read
+// back as zero — wrong offsets. Writing to unverified offsets inside
+// a live IL2CPP struct corrupted a pointer Unity later dereferenced
+// during render, causing EXC_BAD_ACCESS in UnityRepaint.
+//
+// This version detects targets and computes desired pitch/yaw but does
+// NOT write anything to the game. The movdump logs the surrounding
+// float bytes so we can identify the real rotation fields. Once we
+// know them, flip kWriteEnabled and use the confirmed offsets.
+// ============================================================
+
 void tick() {
     if (!RavenSettings::aimEnabled) return;
     resolveHandles();
 
-    // CI anchor string — do not remove. Keep literal "aim: pc=" intact.
     RAVEN_LOG("aim: pc=%p cam=%p team=%p tf=%p",
               g_playerRootClass, g_getMainCamera, g_getTeamId, g_getRootTransform);
 
     if (!g_playerRootClass) return;
 
     void* localPlayer = IL2CPP::readStaticFieldObject(g_playerRootClass, GameData::kFldMyPlayer);
-    if (!localPlayer) return;
+    if (!ptrOk(localPlayer)) return;
 
     int localTeam = g_getTeamId ? invokeInt(g_getTeamId, localPlayer) : 0;
 
-    // Same camera priority as ESP.
     void* camera = nullptr;
     {
         void* camCtrl = readPtr(localPlayer, GameData::PlayerRoot::CameraController);
-        if (camCtrl && g_getRenderCamera)
+        if (ptrOk(camCtrl) && g_getRenderCamera)
             camera = invokePtr(g_getRenderCamera, camCtrl);
     }
-    if (!camera && g_getMainCamera)
+    if (!ptrOk(camera) && g_getMainCamera)
         camera = invokePtr(g_getMainCamera, localPlayer);
-    if (!camera) return;
+    if (!ptrOk(camera)) return;
 
     Vec3 aimPoint = {0,0,0};
     void* target = findBestTarget(localPlayer, localTeam, camera, &aimPoint);
     if (!target) return;
 
     void* localT = g_getRootTransform ? invokePtr(g_getRootTransform, localPlayer) : nullptr;
-    if (!localT) return;
+    if (!ptrOk(localT)) return;
 
     Vec3 src = {0,0,0};
     if (!readTransformPos(localT, &src)) return;
@@ -1653,46 +1685,57 @@ void tick() {
     wantPitch = MAX(-89.0f, MIN(89.0f, wantPitch));
 
     void* movement = readPtr(localPlayer, GameData::PlayerRoot::PlayerMovement);
-    if (!movement) return;
-
-    if (!g_movementClass) {
-        g_movementClass = IL2CPP::objectGetClass(movement);
-        if (g_movementClass) {
-            g_setVerticalRotation = IL2CPP::resolveMethod(g_movementClass, "set_VerticalRotation", 1);
-        }
+    if (!ptrOk(movement)) {
+        RAVEN_LOG("aim: movement pointer out of range: %p", movement);
+        return;
     }
 
-    float smooth = RavenSettings::aimSmooth;
-    if (smooth < 1.0f) smooth = 1.0f;
-
-    float* pitchField = (float*)((uint8_t*)movement + GameData::PlayerMovement::VerticalRotation);
-    float* yawField   = (float*)((uint8_t*)movement + GameData::PlayerMovement::HorRotationAngles);
-
-    float curPitch = *pitchField;
-    float curYaw   = *yawField;
-
-    float dYaw = wantYaw - curYaw;
-    while (dYaw >  180.0f) dYaw -= 360.0f;
-    while (dYaw < -180.0f) dYaw += 360.0f;
-
-    float nextPitch = curPitch + (wantPitch - curPitch) / smooth;
-    float nextYaw   = curYaw   + dYaw / smooth;
-
-    static int dbg = 0;
-    if (dbg < 10) {
-        RAVEN_LOG("aim-dbg: curPitch=%.2f curYaw=%.2f wantPitch=%.2f wantYaw=%.2f src=(%.1f,%.1f,%.1f) aim=(%.1f,%.1f,%.1f)",
-                  curPitch, curYaw, wantPitch, wantYaw,
-                  src.x, src.y, src.z, aimPoint.x, aimPoint.y, aimPoint.z);
-        dbg++;
+    // ---- movdump: identify the real rotation fields ----
+    // Watch these logs while panning the camera slowly. The float offset
+    // that tracks your horizontal pan is yaw. The one that tracks tilt is
+    // pitch. Values may be in degrees or radians; the magnitude tells us.
+    static int mdump = 0;
+    if (mdump < 30) {
+        uint8_t* b = (uint8_t*)movement;
+        RAVEN_LOG("movdump 0x30: %.3f %.3f %.3f %.3f | %.3f %.3f %.3f %.3f",
+            *(float*)(b+0x30), *(float*)(b+0x34), *(float*)(b+0x38), *(float*)(b+0x3C),
+            *(float*)(b+0x40), *(float*)(b+0x44), *(float*)(b+0x48), *(float*)(b+0x4C));
+        RAVEN_LOG("movdump 0x50: %.3f %.3f %.3f %.3f | %.3f %.3f %.3f %.3f",
+            *(float*)(b+0x50), *(float*)(b+0x54), *(float*)(b+0x58), *(float*)(b+0x5C),
+            *(float*)(b+0x60), *(float*)(b+0x64), *(float*)(b+0x68), *(float*)(b+0x6C));
+        RAVEN_LOG("movdump 0x70: %.3f %.3f %.3f %.3f | %.3f %.3f %.3f %.3f",
+            *(float*)(b+0x70), *(float*)(b+0x74), *(float*)(b+0x78), *(float*)(b+0x7C),
+            *(float*)(b+0x80), *(float*)(b+0x84), *(float*)(b+0x88), *(float*)(b+0x8C));
+        mdump++;
     }
 
-    if (g_setVerticalRotation) {
-        void* args[1] = { &nextPitch };
-        IL2CPP::invokeMethod(g_setVerticalRotation, movement, args);
-    } else {
-        *pitchField = nextPitch;
-    }
-    *yawField = nextYaw;
+    RAVEN_LOG("aim-dbg: wantPitch=%.2f wantYaw=%.2f src=(%.1f,%.1f,%.1f) aim=(%.1f,%.1f,%.1f)",
+              wantPitch, wantYaw, src.x, src.y, src.z, aimPoint.x, aimPoint.y, aimPoint.z);
+
+    // ---- WRITE PATH: disabled until offsets confirmed ----
+    // Flip to true ONLY after movdump identifies the real offsets.
+    const bool kWriteEnabled = false;
+    if (!kWriteEnabled) return;
+
+    // When enabled, replace the offsets below with the ones movdump confirms.
+    //
+    //   float* pitchField = (float*)((uint8_t*)movement + 0x??);
+    //   float* yawField   = (float*)((uint8_t*)movement + 0x??);
+    //   float curPitch = *pitchField;
+    //   float curYaw   = *yawField;
+    //   float dYaw = wantYaw - curYaw;
+    //   while (dYaw >  180.0f) dYaw -= 360.0f;
+    //   while (dYaw < -180.0f) dYaw += 360.0f;
+    //   float smooth = MAX(1.0f, RavenSettings::aimSmooth);
+    //   float nextPitch = curPitch + (wantPitch - curPitch) / smooth;
+    //   float nextYaw   = curYaw   + dYaw / smooth;
+    //   if (g_setVerticalRotation) {
+    //       void* args[1] = { &nextPitch };
+    //       IL2CPP::invokeMethod(g_setVerticalRotation, movement, args);
+    //   } else {
+    //       *pitchField = nextPitch;
+    //   }
+    //   *yawField = nextYaw;
 }
 
 }
@@ -2968,7 +3011,12 @@ static void forceLandscape(void) {
 - (NSArray*)cardsForTab:(NSString*)tab width:(CGFloat)w {
     if ([tab isEqualToString:@"AIMBOT"]) {
         UIView* general = [self card:@"GENERAL" width:w rows:@[
-            [self rowToggle:@"Enable Aimbot" on:RavenSettings::aimEnabled cb:^(BOOL v){ RavenAimbot::setEnabled(v); RavenSettings::save(); }],
+            [self rowToggle:@"Enable Aimbot" on:RavenSettings::aimEnabled cb:^(BOOL v){
+                RavenAimbot::setEnabled(v);
+                RAVEN_LOG("aim-toggle: enabled=%d esp=%d",
+                          RavenSettings::aimEnabled, RavenSettings::espEnabled);
+                RavenSettings::save();
+            }],
             [self rowSelector:@"Aim Activation"
                          items:@[@"Hold", @"Toggle", @"Always"]
                       selected:RavenSettings::aimActivation
@@ -3221,4 +3269,4 @@ static void forceLandscape(void) {
 @end
 """)
 
-print("done - scene-space ESP, yaw+pitch aimbot, reload-all-tabs, settings log")
+print("done - aim read-only (movdump), esp ptr guard, no crash")
