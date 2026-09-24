@@ -1312,6 +1312,8 @@ static void* g_getRenderCamera     = nullptr;
 static void* g_cameraClass         = nullptr;
 static void* g_worldToScreen       = nullptr;
 static void* g_getRootTransform    = nullptr;
+static void* g_setVerticalRotation = nullptr;
+static void* g_movementClass       = nullptr;
 static bool  g_resolved            = false;
 static void* g_lockedTarget        = nullptr;
 static double g_lockedSince        = 0.0;
@@ -1477,7 +1479,13 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera,
     return best;
 }
 
-void setEnabled(bool on) { RavenSettings::aimEnabled = on; }
+void setEnabled(bool on) {
+    RavenSettings::aimEnabled = on;
+    if (!on) {
+        g_lockedTarget = nullptr;
+        g_lockedSince = 0.0;
+    }
+}
 
 void tick() {
     if (!RavenSettings::aimEnabled) return;
@@ -1510,10 +1518,18 @@ void tick() {
     dir.x /= len; dir.y /= len; dir.z /= len;
 
     float yaw   = atan2f(dir.x, dir.z) * 180.0f / M_PI;
-    float pitch = -asinf(dir.y)        * 180.0f / M_PI;
+    float pitch = asinf(dir.y)         * 180.0f / M_PI;
+    pitch = MAX(-89.0f, MIN(89.0f, pitch));
 
     void* movement = readPtr(localPlayer, GameData::PlayerRoot::PlayerMovement);
     if (!movement) return;
+
+    if (!g_movementClass) {
+        g_movementClass = IL2CPP::objectGetClass(movement);
+        if (g_movementClass) {
+            g_setVerticalRotation = IL2CPP::resolveMethod(g_movementClass, "set_VerticalRotation", 1);
+        }
+    }
 
     float smooth = RavenSettings::aimSmooth;
     if (smooth <= 0.01f) smooth = 1.0f;
@@ -1524,10 +1540,21 @@ void tick() {
     float yawDelta = fmodf(yaw - *horAngles + 540.0f, 360.0f) - 180.0f;
     if (smooth > 1.0f) {
         *horAngles += yawDelta / smooth;
-        *vertAngle += (pitch - *vertAngle) / smooth;
+        float nextPitch = *vertAngle + (pitch - *vertAngle) / smooth;
+        if (g_setVerticalRotation) {
+            void* args[1] = { &nextPitch };
+            IL2CPP::invokeMethod(g_setVerticalRotation, movement, args);
+        } else {
+            *vertAngle = nextPitch;
+        }
     } else {
         *horAngles = yaw;
-        *vertAngle = pitch;
+        if (g_setVerticalRotation) {
+            void* args[1] = { &pitch };
+            IL2CPP::invokeMethod(g_setVerticalRotation, movement, args);
+        } else {
+            *vertAngle = pitch;
+        }
     }
 }
 
@@ -2834,7 +2861,7 @@ static void forceLandscape(void) {
 - (NSArray*)cardsForTab:(NSString*)tab width:(CGFloat)w {
     if ([tab isEqualToString:@"AIMBOT"]) {
         UIView* general = [self card:@"GENERAL" width:w rows:@[
-            [self rowToggle:@"Enable Aimbot" on:RavenSettings::aimEnabled cb:^(BOOL v){ RavenSettings::aimEnabled = v; RavenSettings::save(); }],
+            [self rowToggle:@"Enable Aimbot" on:RavenSettings::aimEnabled cb:^(BOOL v){ RavenAimbot::setEnabled(v); RavenSettings::save(); }],
             [self rowSelector:@"Aim Activation"
                          items:@[@"Hold", @"Toggle", @"Always"]
                       selected:RavenSettings::aimActivation
