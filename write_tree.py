@@ -1050,7 +1050,7 @@ static void ensureTransformHandles(void* transformObj) {
     }
 }
 
-// PATCH: WorldToScreenPoint takes 1 arg in Unity (Vector3). Try 1-arg first,
+// WorldToScreenPoint takes 1 arg in Unity (Vector3). Try 1-arg first,
 // fall back to 2-arg for any custom overload.
 static void ensureCameraHandles(void* cameraObj) {
     if (!cameraObj || g_cameraClass) return;
@@ -1101,7 +1101,7 @@ static bool readTransformPos(void* transformObj, Vec3* out) {
     return true;
 }
 
-// PATCH: single-arg invoke. Plus diagnostic logging on first 15 calls.
+// FIX: log line arg count matched. Diagnostic on first 15 calls.
 static bool worldToScreen(void* camera, Vec3 world, CGPoint* out) {
     if (!camera) return false;
     ensureCameraHandles(camera);
@@ -1118,10 +1118,9 @@ static bool worldToScreen(void* camera, Vec3 world, CGPoint* out) {
     bool inRange = (out->x >= -100 && out->x <= scr.width + 100 &&
                     out->y >= -100 && out->y <= scr.height + 100);
 
-    // PATCH: diagnostic — first 15 W2S calls per session.
     static int w2s_n = 0;
     if (w2s_n < 15) {
-        RAVEN_LOG("w2s: in=(%.2f,%.2f,%.2f) raw=(%.2f,%.2f,%.2f) z=%.3f scr=%.0fx%.0f out=(%.1f,%.1f) ok=%d",
+        RAVEN_LOG("w2s: in=(%.2f,%.2f,%.2f) raw=(%.2f,%.2f,%.2f) scr=%.0fx%.0f out=(%.1f,%.1f) ok=%d",
                   world.x, world.y, world.z,
                   sp.x, sp.y, sp.z,
                   scr.width, scr.height,
@@ -1223,7 +1222,6 @@ static bool worldToScreen(void* camera, Vec3 world, CGPoint* out) {
     [self begin];
     resolveHandles();
 
-    // PATCH: one-shot bounds/scale diagnostic.
     static bool bounds_logged = false;
     if (!bounds_logged) {
         CGSize s = [UIScreen mainScreen].bounds.size;
@@ -1248,10 +1246,8 @@ static bool worldToScreen(void* camera, Vec3 world, CGPoint* out) {
 
     int localTeam = g_getTeamId ? invokeInt(g_getTeamId, localPlayer) : 0;
 
-    // PATCH: try RenderCamera off CameraController FIRST, fall back to
-    // MainCamera off the player. The player's get_MainCamera accessor
-    // may return a rig-parented camera whose W2S basis doesn't match
-    // the actual scene render camera.
+    // Camera priority: RenderCamera off CameraController FIRST, fall back
+    // to MainCamera off the player.
     void* camera = nullptr;
     {
         void* localCamCtrl = readPtr(localPlayer, GameData::PlayerRoot::CameraController);
@@ -1262,7 +1258,6 @@ static bool worldToScreen(void* camera, Vec3 world, CGPoint* out) {
         camera = invokePtr(g_getMainCamera, localPlayer);
     if (!camera) return;
 
-    // PATCH: diag — one-shot camera resolution report.
     static bool cam_logged = false;
     if (!cam_logged) {
         void* camCtrl = readPtr(localPlayer, GameData::PlayerRoot::CameraController);
@@ -1417,7 +1412,7 @@ static void ensureTransformClass(void* obj) {
     }
 }
 
-// PATCH: same resolve chain as ESP — 1-arg first, 2-arg fallback.
+// Same resolve chain as ESP — 1-arg first, 2-arg fallback.
 static void ensureCameraClass(void* obj) {
     if (!obj || g_cameraClass) return;
     g_cameraClass = IL2CPP::objectGetClass(obj);
@@ -1451,7 +1446,6 @@ static bool readTransformPos(void* t, Vec3* out) {
     return true;
 }
 
-// PATCH: single-arg invoke, matching ESP.
 static bool worldToScreen(void* cam, Vec3 w, CGPoint* out) {
     if (!cam) return false;
     ensureCameraClass(cam);
@@ -1573,7 +1567,7 @@ void tick() {
 
     int localTeam = g_getTeamId ? invokeInt(g_getTeamId, localPlayer) : 0;
 
-    // PATCH: same priority as ESP — RenderCamera first, MainCamera fallback.
+    // Same camera priority as ESP.
     void* camera = nullptr;
     {
         void* camCtrl = readPtr(localPlayer, GameData::PlayerRoot::CameraController);
@@ -3162,4 +3156,4 @@ static void forceLandscape(void) {
 @end
 """)
 
-print("done - camera priority swap + W2S/bounds diagnostics")
+print("done - log format fixed, ready to build")
