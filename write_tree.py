@@ -875,6 +875,7 @@ w("Src/ESP.mm", r"""
 #import "IL2CPP.h"
 #import "Settings.h"
 #import <UIKit/UIKit.h>
+#include <cmath>
 
 static void*  g_playerRootClass = nullptr;
 static void*  g_playerHealthClass = nullptr;
@@ -1116,7 +1117,6 @@ static bool worldToScreen(void* camera, Vec3 world, CGPoint* out) {
     if (localTransform) readTransformPos(localTransform, &localPos);
 
     CGSize screen = [UIScreen mainScreen].bounds.size;
-    CGPoint center = CGPointMake(screen.width / 2.0, screen.height / 2.0);
 
     NSMutableString* labels = [NSMutableString string];
 
@@ -1148,7 +1148,7 @@ static bool worldToScreen(void* camera, Vec3 world, CGPoint* out) {
         if (!worldToScreen(camera, headPos, &headScreen)) continue;
         worldToScreen(camera, feetPos, &feetScreen);
 
-        float boxH = fabsf(feetScreen.y - headScreen.y);
+        float boxH = static_cast<float>(std::abs(feetScreen.y - headScreen.y));
         if (boxH < 4 || boxH > 2000) continue;
         float boxW = boxH * 0.42f;
 
