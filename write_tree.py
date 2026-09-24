@@ -1232,17 +1232,16 @@ static bool worldToScreen(void* camera, Vec3 world, CGPoint* out) {
             if (g_getIsDowned && invokeBool(g_getIsDowned, healthComp)) continue;
         }
 
-        void* mobView = (g_getActiveMobView) ? invokePtr(g_getActiveMobView, p) : nullptr;
-        if (!mobView) continue;
-
-        void* headTransform = (g_getHeadTransform) ? invokePtr(g_getHeadTransform, mobView) : nullptr;
-        Vec3 headPos = {0,0,0};
-        if (!headTransform || !readTransformPos(headTransform, &headPos)) continue;
-
         void* rootTransform = g_playerTransformGetter ? invokePtr(g_playerTransformGetter, p) : nullptr;
-        Vec3 feetPos = headPos;
-        if (!rootTransform || !readTransformPos(rootTransform, &feetPos)) {
-            feetPos.y -= 1.65f;
+        Vec3 feetPos = {0,0,0};
+        if (!rootTransform || !readTransformPos(rootTransform, &feetPos)) continue;
+
+        Vec3 headPos = feetPos;
+        void* mobView = (g_getActiveMobView) ? invokePtr(g_getActiveMobView, p) : nullptr;
+        void* headTransform = mobView && g_getHeadTransform
+            ? invokePtr(g_getHeadTransform, mobView) : nullptr;
+        if (!headTransform || !readTransformPos(headTransform, &headPos)) {
+            headPos.y += 1.8f;
         }
 
         CGPoint headScreen, feetScreen;
@@ -1431,22 +1430,23 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera,
         int team = g_getTeamId ? invokeInt(g_getTeamId, p) : 0;
         if (team != 0 && team == localTeam) continue;
 
-        void* mobView = g_getActiveMobView ? invokePtr(g_getActiveMobView, p) : nullptr;
-        if (!mobView) continue;
-
-        void* bone = nullptr;
-        if (RavenSettings::aimBone == 0) {
-            bone = g_getHeadTransform ? invokePtr(g_getHeadTransform, mobView) : nullptr;
-        } else {
-            bone = g_getChestTransform ? invokePtr(g_getChestTransform, mobView) : nullptr;
-        }
-        if (!bone) continue;
-
-        Vec3 bonePos = {0,0,0};
-        if (!readTransformPos(bone, &bonePos)) continue;
         void* targetTransform = g_getRootTransform ? invokePtr(g_getRootTransform, p) : nullptr;
-        Vec3 targetPos = bonePos;
-        if (targetTransform) readTransformPos(targetTransform, &targetPos);
+        Vec3 targetPos = {0,0,0};
+        if (!targetTransform || !readTransformPos(targetTransform, &targetPos)) continue;
+
+        Vec3 bonePos = targetPos;
+        void* mobView = g_getActiveMobView ? invokePtr(g_getActiveMobView, p) : nullptr;
+        void* bone = nullptr;
+        if (mobView) {
+            if (RavenSettings::aimBone == 0) {
+                bone = g_getHeadTransform ? invokePtr(g_getHeadTransform, mobView) : nullptr;
+            } else {
+                bone = g_getChestTransform ? invokePtr(g_getChestTransform, mobView) : nullptr;
+            }
+        }
+        if (!bone || !readTransformPos(bone, &bonePos)) {
+            bonePos.y += (RavenSettings::aimBone == 0) ? 1.65f : 1.15f;
+        }
         Vec3 delta = {targetPos.x - localPos.x, targetPos.y - localPos.y, targetPos.z - localPos.z};
         float worldDistance = sqrtf(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
         if (RavenSettings::aimMaxDist > 0.0f && worldDistance > RavenSettings::aimMaxDist) continue;
