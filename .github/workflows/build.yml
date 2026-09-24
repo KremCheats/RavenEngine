@@ -180,20 +180,22 @@ jobs:
           make clean
           make
 
-      - name: Verify dylib
+      - name: Locate and verify dylib
+        id: locate
         run: |
-          DYLIB=".theos/obj/Raven.dylib"
-          if [ ! -f "$DYLIB" ]; then
-            echo "FAIL: $DYLIB not built"
-            ls -la .theos/obj/ 2>/dev/null || true
+          DYLIB=$(find .theos -name 'Raven.dylib' -type f | head -n1)
+          if [ -z "$DYLIB" ]; then
+            echo "FAIL: Raven.dylib not found anywhere in .theos"
+            find .theos -type f | head -50
             exit 1
           fi
-          echo "dylib: $DYLIB"
+          echo "found: $DYLIB"
+          echo "dylib_path=$DYLIB" >> $GITHUB_OUTPUT
           ls -la "$DYLIB"
           lipo -info "$DYLIB" || true
           otool -l "$DYLIB" | grep -A1 LC_UUID || true
           echo "--- checks ---"
-          strings "$DYLIB" | grep -q "diag.txt" && echo "OK: diag.txt string present" || { echo "FAIL: diag.txt missing"; exit 1; }
+          strings "$DYLIB" | grep -q "diag.txt" && echo "OK: diag.txt present" || { echo "FAIL: diag.txt missing"; exit 1; }
           strings "$DYLIB" | grep -q "raven.diag" && echo "OK: diag queue label present" || { echo "FAIL: raven.diag missing"; exit 1; }
           strings "$DYLIB" | grep -q "esp: pc=" && echo "OK: ESP logging present" || { echo "FAIL: ESP logging missing"; exit 1; }
           strings "$DYLIB" | grep -q "aim: pc=" && echo "OK: Aimbot logging present" || { echo "FAIL: Aimbot logging missing"; exit 1; }
@@ -205,5 +207,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: raven-dylib
-          path: .theos/obj/Raven.dylib
+          path: ${{ steps.locate.outputs.dylib_path }}
           if-no-files-found: error
