@@ -1341,7 +1341,7 @@ static void ensureCameraClass(void* obj) {
     if (!obj || g_cameraClass) return;
     g_cameraClass = IL2CPP::objectGetClass(obj);
     if (g_cameraClass) {
-        g_worldToScreen = IL2CPP::resolveMethod(g_cameraClass, GameData::kMWorldToScreen, 1);
+        g_worldToScreen = IL2CPP::resolveMethod(g_cameraClass, GameData::kMWorldToScreen, 2);
     }
 }
 
@@ -1373,7 +1373,8 @@ static bool worldToScreen(void* cam, Vec3 w, CGPoint* out) {
     ensureCameraClass(cam);
     if (!g_worldToScreen) return false;
     Vec3 arg = w;
-    void* args[1] = { &arg };
+    int eye = 0;
+    void* args[2] = { &arg, &eye };
     void* r = IL2CPP::invokeMethod(g_worldToScreen, cam, args);
     if (!r) return false;
     Vec3 sp = *(Vec3*)r;
