@@ -1185,6 +1185,7 @@ static bool worldToScreen(void* camera, Vec3 world, CGPoint* out) {
     if (!self.window) [self attach];
     [self attachToScene];
     self.window.hidden = NO;
+    [self begin];
     resolveHandles();
     if (!g_playerRootClass) return;
 
@@ -1235,11 +1236,13 @@ static bool worldToScreen(void* camera, Vec3 world, CGPoint* out) {
 
         void* rootTransform = g_playerTransformGetter ? invokePtr(g_playerTransformGetter, p) : nullptr;
         Vec3 feetPos = headPos;
-        if (rootTransform) readTransformPos(rootTransform, &feetPos);
+        if (!rootTransform || !readTransformPos(rootTransform, &feetPos)) {
+            feetPos.y -= 1.65f;
+        }
 
         CGPoint headScreen, feetScreen;
         if (!worldToScreen(camera, headPos, &headScreen)) continue;
-        worldToScreen(camera, feetPos, &feetScreen);
+        if (!worldToScreen(camera, feetPos, &feetScreen)) continue;
 
         float boxH = static_cast<float>(std::abs(feetScreen.y - headScreen.y));
         if (boxH < 4 || boxH > 2000) continue;
@@ -1310,6 +1313,8 @@ static void* g_cameraClass         = nullptr;
 static void* g_worldToScreen       = nullptr;
 static void* g_getRootTransform    = nullptr;
 static bool  g_resolved            = false;
+static void* g_lockedTarget        = nullptr;
+static double g_lockedSince        = 0.0;
 static void resolveHandles(void) {
     if (g_resolved) return;
     void* img = IL2CPP::gameImage();
@@ -1404,6 +1409,8 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera,
     void* best = nullptr;
     float bestDist = FLT_MAX;
     Vec3 bestAim = {0,0,0};
+    Vec3 lockedAim = {0,0,0};
+    bool lockedVisible = false;
     Vec3 localPos = {0,0,0};
     void* localTransform = g_getRootTransform ? invokePtr(g_getRootTransform, localPlayer) : nullptr;
     if (localTransform) readTransformPos(localTransform, &localPos);
@@ -1440,6 +1447,10 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera,
 
         float d = hypotf(screen.x - center.x, screen.y - center.y);
         if (d > fovPx) continue;
+        if (p == g_lockedTarget) {
+            lockedAim = bonePos;
+            lockedVisible = true;
+        }
         if (d < bestDist) {
             bestDist = d;
             best = p;
@@ -1447,7 +1458,22 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera,
         }
     }
 
-    if (best) *outAimPoint = bestAim;
+    double now = CACurrentMediaTime();
+    double switchDelay = MAX(0.0, (double)RavenSettings::aimSwitchDelay) / 1000.0;
+    if (g_lockedTarget && lockedVisible && switchDelay > 0.0 &&
+        (now - g_lockedSince) < switchDelay) {
+        *outAimPoint = lockedAim;
+        return g_lockedTarget;
+    }
+    if (best) {
+        if (best != g_lockedTarget) {
+            g_lockedTarget = best;
+            g_lockedSince = now;
+        }
+        *outAimPoint = bestAim;
+    } else if (!lockedVisible) {
+        g_lockedTarget = nullptr;
+    }
     return best;
 }
 
@@ -1495,8 +1521,9 @@ void tick() {
     float* horAngles = (float*)((uint8_t*)movement + GameData::PlayerMovement::HorRotationAngles);
     float* vertAngle = (float*)((uint8_t*)movement + GameData::PlayerMovement::VerticalRotation);
 
+    float yawDelta = fmodf(yaw - *horAngles + 540.0f, 360.0f) - 180.0f;
     if (smooth > 1.0f) {
-        *horAngles += (yaw   - *horAngles) / smooth;
+        *horAngles += yawDelta / smooth;
         *vertAngle += (pitch - *vertAngle) / smooth;
     } else {
         *horAngles = yaw;
