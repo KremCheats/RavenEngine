@@ -2104,7 +2104,6 @@ void tick() {
     static Vec3   g_dumpProbe   = {0,0,0};
     static bool   g_dumpProbeOk = false;
     static double g_dumpLastLog = 0.0;
-    static void*  g_candidateLocal = nullptr;
     static bool   g_candidateHave = false;
     static float  g_candidatePrev[0x100 / sizeof(float)] = {};
 
@@ -2113,7 +2112,6 @@ void tick() {
         g_dumpUntil   = CACurrentMediaTime() + 8.0;
         g_dumpProbeOk = false;
         g_dumpLastLog = 0.0;
-        g_candidateLocal = localPlayer;
         g_candidateHave = false;
         memset(g_candidatePrev, 0, sizeof(g_candidatePrev));
     }
