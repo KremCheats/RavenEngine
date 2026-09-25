@@ -1100,6 +1100,7 @@ w("Src/ESP.h", r"""
 @property (nonatomic, strong) UIWindow *window;
 @property (nonatomic, strong) CAShapeLayer *boxes;
 @property (nonatomic, strong) CAShapeLayer *lines;
+@property (nonatomic, strong) CAShapeLayer *guides;
 @property (nonatomic, strong) CATextLayer  *labels;
 
 + (instancetype)shared;
@@ -1110,7 +1111,9 @@ w("Src/ESP.h", r"""
 - (void)render;
 
 - (void)drawBox:(CGRect)r color:(UIColor*)c;
+- (void)drawCornerBox:(CGRect)r color:(UIColor*)c;
 - (void)drawLine:(CGPoint)a to:(CGPoint)b color:(UIColor*)c;
+- (void)drawGuideCircle:(CGPoint)center radius:(CGFloat)radius color:(UIColor*)c;
 @end
 #endif
 """)
@@ -1306,6 +1309,16 @@ static bool worldToScreen(void* camera, Vec3 world, CGSize scr, CGPoint* out) {
     return inRange;
 }
 
+static UIColor* espPaletteColor(int index) {
+    switch (index) {
+        case 1: return [UIColor colorWithRed:0.20 green:0.95 blue:0.35 alpha:0.95];
+        case 2: return [UIColor colorWithWhite:0.96 alpha:0.95];
+        case 3: return [UIColor colorWithRed:1.00 green:0.82 blue:0.12 alpha:0.95];
+        case 4: return [UIColor colorWithRed:0.15 green:0.85 blue:1.00 alpha:0.95];
+        default: return [UIColor colorWithRed:0.835 green:0.122 blue:0.157 alpha:0.95];
+    }
+}
+
 @implementation RavenESP
 
 + (instancetype)shared {
@@ -1338,6 +1351,13 @@ static bool worldToScreen(void* camera, Vec3 world, CGSize scr, CGPoint* out) {
     self.lines.anchorPoint = CGPointZero;
     self.lines.position = CGPointZero;
 
+    self.guides = [CAShapeLayer layer];
+    self.guides.fillColor = [UIColor clearColor].CGColor;
+    self.guides.lineWidth = 1.2;
+    self.guides.strokeColor = [RAVEN_RED colorWithAlphaComponent:0.72].CGColor;
+    self.guides.anchorPoint = CGPointZero;
+    self.guides.position = CGPointZero;
+
     self.labels = [CATextLayer layer];
     self.labels.foregroundColor = RAVEN_SILVER.CGColor;
     self.labels.fontSize = 11;
@@ -1349,6 +1369,7 @@ static bool worldToScreen(void* camera, Vec3 world, CGSize scr, CGPoint* out) {
 
     [self.window.layer addSublayer:self.boxes];
     [self.window.layer addSublayer:self.lines];
+    [self.window.layer addSublayer:self.guides];
     [self.window.layer addSublayer:self.labels];
     [self attachToScene];
 }
@@ -1377,7 +1398,7 @@ static bool worldToScreen(void* camera, Vec3 world, CGSize scr, CGPoint* out) {
         root.view.frame = normalized;
         root.view.insetsLayoutMarginsFromSafeArea = NO;
 
-        for (CALayer* L in @[self.boxes, self.lines, self.labels]) {
+        for (CALayer* L in @[self.boxes, self.lines, self.guides, self.labels]) {
             L.anchorPoint = CGPointZero;
             L.position    = CGPointZero;
             L.bounds      = normalized;
@@ -1401,6 +1422,7 @@ static bool worldToScreen(void* camera, Vec3 world, CGSize scr, CGPoint* out) {
 - (void)begin {
     self.boxes.path = NULL;
     self.lines.path = NULL;
+    self.guides.path = NULL;
     self.labels.string = @"";
 }
 
@@ -1415,6 +1437,27 @@ static bool worldToScreen(void* camera, Vec3 world, CGSize scr, CGPoint* out) {
     self.boxes.strokeColor = c.CGColor;
 }
 
+- (void)drawCornerBox:(CGRect)r color:(UIColor*)c {
+    CGFloat cw = MAX(6.0, r.size.width * 0.28);
+    CGFloat ch = MAX(6.0, r.size.height * 0.20);
+    [self drawLine:CGPointMake(CGRectGetMinX(r), CGRectGetMinY(r))
+                to:CGPointMake(CGRectGetMinX(r) + cw, CGRectGetMinY(r)) color:c];
+    [self drawLine:CGPointMake(CGRectGetMinX(r), CGRectGetMinY(r))
+                to:CGPointMake(CGRectGetMinX(r), CGRectGetMinY(r) + ch) color:c];
+    [self drawLine:CGPointMake(CGRectGetMaxX(r), CGRectGetMinY(r))
+                to:CGPointMake(CGRectGetMaxX(r) - cw, CGRectGetMinY(r)) color:c];
+    [self drawLine:CGPointMake(CGRectGetMaxX(r), CGRectGetMinY(r))
+                to:CGPointMake(CGRectGetMaxX(r), CGRectGetMinY(r) + ch) color:c];
+    [self drawLine:CGPointMake(CGRectGetMinX(r), CGRectGetMaxY(r))
+                to:CGPointMake(CGRectGetMinX(r) + cw, CGRectGetMaxY(r)) color:c];
+    [self drawLine:CGPointMake(CGRectGetMinX(r), CGRectGetMaxY(r))
+                to:CGPointMake(CGRectGetMinX(r), CGRectGetMaxY(r) - ch) color:c];
+    [self drawLine:CGPointMake(CGRectGetMaxX(r), CGRectGetMaxY(r))
+                to:CGPointMake(CGRectGetMaxX(r) - cw, CGRectGetMaxY(r)) color:c];
+    [self drawLine:CGPointMake(CGRectGetMaxX(r), CGRectGetMaxY(r))
+                to:CGPointMake(CGRectGetMaxX(r), CGRectGetMaxY(r) - ch) color:c];
+}
+
 - (void)drawLine:(CGPoint)a to:(CGPoint)b color:(UIColor*)c {
     CGMutablePathRef cur = CGPathCreateMutableCopy(self.lines.path ?: CGPathCreateMutable());
     CGPathMoveToPoint(cur, NULL, a.x, a.y);
@@ -1422,6 +1465,20 @@ static bool worldToScreen(void* camera, Vec3 world, CGSize scr, CGPoint* out) {
     self.lines.path = cur;
     CGPathRelease(cur);
     self.lines.strokeColor = c.CGColor;
+}
+
+- (void)drawGuideCircle:(CGPoint)center radius:(CGFloat)radius color:(UIColor*)c {
+    if (radius <= 0.0) return;
+    UIBezierPath* p = [UIBezierPath bezierPathWithArcCenter:center
+                                                       radius:radius
+                                                   startAngle:0
+                                                     endAngle:(CGFloat)(M_PI * 2.0)
+                                                    clockwise:YES];
+    CGMutablePathRef cur = CGPathCreateMutableCopy(self.guides.path ?: CGPathCreateMutable());
+    CGPathAddPath(cur, NULL, p.CGPath);
+    self.guides.path = cur;
+    CGPathRelease(cur);
+    self.guides.strokeColor = c.CGColor;
 }
 
 - (void)render {
@@ -1492,6 +1549,32 @@ static bool worldToScreen(void* camera, Vec3 world, CGSize scr, CGPoint* out) {
 
     CGSize screen = self.window.bounds.size;
     NSMutableString* labels = [NSMutableString string];
+
+    CGPoint center = CGPointMake(screen.width / 2.0, screen.height / 2.0);
+    if (RavenSettings::aimShowCircle) {
+        CGFloat radius = (RavenSettings::aimFov / 90.0f) * (screen.width / 2.0f);
+        [self drawGuideCircle:center radius:radius color:[RAVEN_RED colorWithAlphaComponent:0.78]];
+    }
+    if (RavenSettings::visFovCircle) {
+        [self drawGuideCircle:center radius:RavenSettings::visFovRadius
+                         color:[UIColor colorWithRed:0.95 green:0.75 blue:0.20 alpha:0.78]];
+    }
+    if (RavenSettings::visCrosshair) {
+        CGFloat s = MAX(2.0f, RavenSettings::visCrosshairSize);
+        CGFloat t = MAX(1.0f, RavenSettings::visCrosshairThickness);
+        UIColor* cc = [UIColor colorWithRed:0.95 green:0.95 blue:0.95 alpha:0.90];
+        if (RavenSettings::visCrosshairStyle == 0) {
+            [self drawGuideCircle:center radius:t color:cc];
+        } else if (RavenSettings::visCrosshairStyle == 2) {
+            [self drawGuideCircle:center radius:s color:cc];
+        } else {
+            [self drawLine:CGPointMake(center.x - s, center.y) to:CGPointMake(center.x + s, center.y) color:cc];
+            [self drawLine:CGPointMake(center.x, center.y - s) to:CGPointMake(center.x, center.y + s) color:cc];
+            if (RavenSettings::visCrosshairStyle == 3)
+                [self drawLine:CGPointMake(center.x - s, center.y + s) to:CGPointMake(center.x + s, center.y + s) color:cc];
+        }
+        self.guides.lineWidth = t;
+    }
 
     // -------------------------------------------------------------------
     // Slot dump. One pass per match (bound to localPlayer change), first
@@ -1584,8 +1667,12 @@ static bool worldToScreen(void* camera, Vec3 world, CGSize scr, CGPoint* out) {
         float boxW = boxH * 0.42f;
 
         CGRect boxRect = CGRectMake(headScreen.x - boxW/2.0, headScreen.y, boxW, boxH);
-        UIColor* boxColor = [UIColor colorWithRed:0.835 green:0.122 blue:0.157 alpha:0.95];
-        if (RavenSettings::espBox) [self drawBox:boxRect color:boxColor];
+        UIColor* boxColor = espPaletteColor(bVisible ? RavenSettings::espVisibleColor
+                                                     : RavenSettings::espEnemyColor);
+        if (RavenSettings::espBox) {
+            if (RavenSettings::espCorner) [self drawCornerBox:boxRect color:boxColor];
+            else [self drawBox:boxRect color:boxColor];
+        }
 
         if (RavenSettings::espSnaplines) {
             [self drawLine:CGPointMake(screen.width / 2.0, screen.height)
