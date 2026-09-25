@@ -1669,10 +1669,8 @@ static UIColor* espPaletteColor(int index) {
         CGRect boxRect = CGRectMake(headScreen.x - boxW/2.0, headScreen.y, boxW, boxH);
         UIColor* boxColor = espPaletteColor(bVisible ? RavenSettings::espVisibleColor
                                                      : RavenSettings::espEnemyColor);
-        if (RavenSettings::espBox) {
-            if (RavenSettings::espCorner) [self drawCornerBox:boxRect color:boxColor];
-            else [self drawBox:boxRect color:boxColor];
-        }
+        if (RavenSettings::espCorner) [self drawCornerBox:boxRect color:boxColor];
+        else if (RavenSettings::espBox) [self drawBox:boxRect color:boxColor];
 
         if (RavenSettings::espSnaplines) {
             [self drawLine:CGPointMake(screen.width / 2.0, screen.height)
