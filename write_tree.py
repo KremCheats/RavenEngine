@@ -1330,7 +1330,7 @@ static UIColor* espPaletteColor(int index) {
 - (void)attach {
     if (self.window) return;
     self.window = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
-    self.window.windowLevel = UIWindowLevelNormal + 0.5;
+    self.window.windowLevel = UIWindowLevelAlert + 50.0;
     self.window.backgroundColor = [UIColor clearColor];
     self.window.userInteractionEnabled = NO;
     self.window.rootViewController = [UIViewController new];
@@ -1492,7 +1492,7 @@ static UIColor* espPaletteColor(int index) {
     CGSize guideScreen = self.window.bounds.size;
     CGPoint guideCenter = CGPointMake(guideScreen.width / 2.0, guideScreen.height / 2.0);
     if (RavenSettings::aimShowCircle) {
-        CGFloat radius = (RavenSettings::aimFov / 90.0f) * (guideScreen.width / 2.0f);
+        CGFloat radius = MAX(1.0f, RavenSettings::aimCircleRadius);
         [self drawGuideCircle:guideCenter radius:radius color:[RAVEN_RED colorWithAlphaComponent:0.78]];
     }
     if (RavenSettings::visFovCircle) {
@@ -1583,10 +1583,11 @@ static UIColor* espPaletteColor(int index) {
 
     static bool controls_logged = false;
     if (!controls_logged) {
-        RAVEN_LOG("esp-controls: esp=%d box=%d corner=%d snap=%d aimCircle=%d visCircle=%d crosshair=%d",
+        RAVEN_LOG("esp-controls: esp=%d box=%d corner=%d snap=%d aimCircle=%d aimRadius=%.1f visCircle=%d visRadius=%.1f crosshair=%d",
                   RavenSettings::espEnabled, RavenSettings::espBox,
                   RavenSettings::espCorner, RavenSettings::espSnaplines,
-                  RavenSettings::aimShowCircle, RavenSettings::visFovCircle,
+                  RavenSettings::aimShowCircle, RavenSettings::aimCircleRadius,
+                  RavenSettings::visFovCircle, RavenSettings::visFovRadius,
                   RavenSettings::visCrosshair);
         controls_logged = true;
     }
