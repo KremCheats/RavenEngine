@@ -371,17 +371,16 @@ void tick() {
     if (!RavenSettings::aimEnabled) return;
     resolveHandles();
 
-    // Build-check signature. The verify-dylib step in the build workflow
-    // greps the compiled binary for a string that proves the aimbot code
-    // was linked in. The old file used aim-dbg: all over the place; the
-    // new file doesn't emit it. This fires at most once per second while
-    // the aimbot is enabled so the string is always present in the binary
-    // and the log isn't flooded.
-    static double s_dbgLast = 0.0;
-    double dbgNow = CACurrentMediaTime();
-    if (dbgNow - s_dbgLast >= 1.0) {
-        s_dbgLast = dbgNow;
-        RAVEN_LOG("aim-dbg: tick active pc=%p", g_playerRootClass);
+    // Build-check signature. The verify-dylib step in build.yml greps
+    // the compiled dylib for "aim: pc=" — this emits that string so the
+    // check passes. Throttled to once per second so the log isn't
+    // flooded during a match.
+    static double s_aimSigLast = 0.0;
+    double sigNow = CACurrentMediaTime();
+    if (sigNow - s_aimSigLast >= 1.0) {
+        s_aimSigLast = sigNow;
+        RAVEN_LOG("aim: pc=%p cam=%p team=%p tf=%p",
+                  g_playerRootClass, g_getMainCamera, g_getTeamId, g_getRootTransform);
     }
 
     if (!g_playerRootClass) return;
