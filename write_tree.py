@@ -1321,18 +1321,26 @@ static bool worldToScreen(void* camera, Vec3 world, CGSize scr, CGPoint* out) {
     if (!r) return false;
     Vec3 sp = *(Vec3*)((uint8_t*)r + 0x10);
     if (sp.z < 0.01f) return false;
-    CGFloat scale = [UIScreen mainScreen].scale;
-    if (scale <= 0.0) scale = 1.0;
-    out->x = sp.x / scale;
-    out->y = scr.height - (sp.y / scale);
+    // Unity returns physical framebuffer pixels; UIKit uses logical points.
+    CGSize native = [UIScreen mainScreen].nativeBounds.size;
+    CGFloat nativeW = MAX(native.width, native.height);
+    CGFloat nativeH = MIN(native.width, native.height);
+    if (nativeW < 1.0 || nativeH < 1.0) {
+        CGFloat scale = MAX(1.0, [UIScreen mainScreen].scale);
+        nativeW = scr.width * scale;
+        nativeH = scr.height * scale;
+    }
+    out->x = (sp.x / nativeW) * scr.width;
+    out->y = scr.height - ((sp.y / nativeH) * scr.height);
     bool inRange = (out->x >= -100 && out->x <= scr.width + 100 &&
                     out->y >= -100 && out->y <= scr.height + 100);
 
     static int w2s_n = 0;
     if (w2s_n < 15) {
-        RAVEN_LOG("w2s: in=(%.2f,%.2f,%.2f) raw=(%.2f,%.2f,%.2f) scr=%.0fx%.0f out=(%.1f,%.1f) ok=%d",
+        RAVEN_LOG("w2s: in=(%.2f,%.2f,%.2f) raw=(%.2f,%.2f,%.2f) native=%.0fx%.0f scr=%.0fx%.0f out=(%.1f,%.1f) ok=%d",
                   world.x, world.y, world.z,
                   sp.x, sp.y, sp.z,
+                  nativeW, nativeH,
                   scr.width, scr.height,
                   out->x, out->y, inRange ? 1 : 0);
         w2s_n++;
@@ -2062,10 +2070,17 @@ static bool worldToScreen(void* cam, Vec3 w, CGSize scr, CGPoint* out) {
     if (sp.z < 0.01f) return false;
     if (!(sp.x == sp.x) || !(sp.y == sp.y) || !(sp.z == sp.z)) return false;
     if (fabsf(sp.x) > 1.0e6f || fabsf(sp.y) > 1.0e6f) return false;
-    CGFloat scale = [UIScreen mainScreen].scale;
-    if (scale <= 0.0) scale = 1.0;
-    out->x = sp.x / scale;
-    out->y = scr.height - (sp.y / scale);
+    // Unity returns physical framebuffer pixels; UIKit uses logical points.
+    CGSize native = [UIScreen mainScreen].nativeBounds.size;
+    CGFloat nativeW = MAX(native.width, native.height);
+    CGFloat nativeH = MIN(native.width, native.height);
+    if (nativeW < 1.0 || nativeH < 1.0) {
+        CGFloat scale = MAX(1.0, [UIScreen mainScreen].scale);
+        nativeW = scr.width * scale;
+        nativeH = scr.height * scale;
+    }
+    out->x = (sp.x / nativeW) * scr.width;
+    out->y = scr.height - ((sp.y / nativeH) * scr.height);
     return (out->x >= -100 && out->x <= scr.width + 100 &&
             out->y >= -100 && out->y <= scr.height + 100);
 }
