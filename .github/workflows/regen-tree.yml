@@ -1,12 +1,20 @@
-name: Regenerate Raven tree + apply aimbot patch
+# file: .github/workflows/regen-tree.yml
+# regenerates the Theos tree from write_tree.py, patches Src/Aimbot.mm
+# with the root-level Aimbot_fixed.mm, verifies the marker, commits.
+# only line that matters for the aimbot patch: the grep -q string.
+# if your step names differ, swap them — the grep string is the contract.
+
+name: Regen Theos Tree
 
 on:
-  workflow_dispatch:
   push:
     paths:
-      - "write_tree.py"
-      - "Aimbot_patch.mm"
-      - ".github/workflows/regen-and-patch.yml"
+      - 'Aimbot_fixed.mm'
+      - 'write_tree.py'
+      - 'config.json'
+      - 'sync_offsets.py'
+      - '.github/workflows/regen-tree.yml'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -15,31 +23,27 @@ jobs:
   regen:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: '3.11'
 
-      - name: Run write_tree.py
+      - name: Generate Theos tree
         run: python3 write_tree.py
 
-      - name: Overwrite Src/Aimbot.mm with patched version
-        run: |
-          test -f Aimbot_patch.mm
-          test -f Src/Aimbot.mm
-          cp Aimbot_patch.mm Src/Aimbot.mm
-          grep -q "Root cause fix" Src/Aimbot.mm
-          echo "Src/Aimbot.mm patched"
+      - name: Patch Src/Aimbot.mm
+        run: cp Aimbot_fixed.mm Src/Aimbot.mm
 
-      - name: Commit and push
+      - name: Verify marker present
+        run: grep -q "Root cause fix" Src/Aimbot.mm
+
+      - name: Commit regenerated tree
         run: |
-          git config user.name "RavenEngine Bot"
-          git config user.email "bot@kremcheats.local"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git diff --cached --quiet && echo "nothing to commit" && exit 0
-          git commit -m "regen tree + aimbot additive-field fix"
+          git commit -m "regen tree: patch Aimbot.mm [skip ci]" || echo "no changes to commit"
           git push
