@@ -2211,6 +2211,18 @@ void tick() {
     void* localPlayer = IL2CPP::readStaticFieldObject(g_playerRootClass, GameData::kFldMyPlayer);
     if (!ptrOk(localPlayer)) return;
 
+    static void* chainLocal = nullptr;
+    if (chainLocal != localPlayer) {
+        chainLocal = localPlayer;
+        void* inputController = readPtr(localPlayer, 0xE8);
+        void* rotationSensor = ptrOk(inputController) ? readPtr(inputController, 0x168) : nullptr;
+        void* inputClass = ptrOk(inputController) ? IL2CPP::objectGetClass(inputController) : nullptr;
+        void* rotationClass = ptrOk(rotationSensor) ? IL2CPP::objectGetClass(rotationSensor) : nullptr;
+        RAVEN_LOG("gyro-chain: local=%p input=%p inputClass=%p rotation=%p rotationClass=%p expectedInput=%p expectedRotation=%p",
+                  localPlayer, inputController, inputClass, rotationSensor, rotationClass,
+                  g_displayInputClass, g_displayRotationClass);
+    }
+
     int localTeam = g_getTeamId ? invokeInt(g_getTeamId, localPlayer) : 0;
 
     void* camera = nullptr;
