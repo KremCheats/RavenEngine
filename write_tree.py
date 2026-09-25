@@ -1001,8 +1001,22 @@ int readListCount(void* obj, uint32_t countOffset) {
 }
 
 void* gameImage() {
-    if (!g_img) g_img = image("_CombatMaster.Battle.dll");
-    if (!g_img) g_img = image("Assembly-CSharp");
+    if (!g_img) {
+        static const char* asms[] = {
+            "_CombatMaster.Battle.dll",
+            "_CombatMaster.Battle",
+            "_CombatMaster.View.dll",
+            "_CombatMaster.View",
+            "Assembly-CSharp.dll",
+            "Assembly-CSharp",
+            "bolt.user.dll",
+            "bolt.user",
+            nullptr
+        };
+        for (int i = 0; asms[i] && !g_img; i++) {
+            g_img = image(asms[i]);
+        }
+    }
     return g_img;
 }
 
@@ -1130,6 +1144,7 @@ static void*  g_getIsDowned = nullptr;
 
 static void*  g_transformClass = nullptr;
 static void*  g_cameraClass = nullptr;
+static bool   g_worldToScreenTwoArg = false;
 
 static void*  g_playerTransformGetter = nullptr;
 static bool   g_resolved = false;
@@ -1209,8 +1224,10 @@ static void ensureCameraHandles(void* cameraObj) {
     g_cameraClass = IL2CPP::objectGetClass(cameraObj);
     if (g_cameraClass) {
         g_worldToScreen = IL2CPP::resolveMethod(g_cameraClass, GameData::kMWorldToScreen, 1);
-        if (!g_worldToScreen)
+        if (!g_worldToScreen) {
             g_worldToScreen = IL2CPP::resolveMethod(g_cameraClass, GameData::kMWorldToScreen, 2);
+            g_worldToScreenTwoArg = (g_worldToScreen != nullptr);
+        }
     }
 }
 
@@ -1258,7 +1275,10 @@ static bool worldToScreen(void* camera, Vec3 world, CGSize scr, CGPoint* out) {
     ensureCameraHandles(camera);
     if (!g_worldToScreen) return false;
     Vec3 arg = world;
-    void* args[1] = { &arg };
+    int monoEye = 0;
+    void* oneArg[1] = { &arg };
+    void* twoArgs[2] = { &arg, &monoEye };
+    void** args = g_worldToScreenTwoArg ? twoArgs : oneArg;
     void* r = IL2CPP::invokeMethod(g_worldToScreen, camera, args);
     if (!r) return false;
     Vec3 sp = *(Vec3*)((uint8_t*)r + 0x10);
@@ -1620,6 +1640,7 @@ w("Src/Aimbot.mm", r"""
 namespace RavenAimbot {
 
 static void* g_playerRootClass     = nullptr;
+static void* g_playerMobViewClass  = nullptr;
 static void* g_getTeamId           = nullptr;
 static void* g_getActiveMobView    = nullptr;
 static void* g_getMainCamera       = nullptr;
@@ -1631,6 +1652,7 @@ static void* g_cameraCtrlClass     = nullptr;
 static void* g_getRenderCamera     = nullptr;
 static void* g_cameraClass         = nullptr;
 static void* g_worldToScreen       = nullptr;
+static bool  g_worldToScreenTwoArg = false;
 static void* g_getRootTransform    = nullptr;
 static bool  g_resolved            = false;
 static void* g_lockedTarget        = nullptr;
@@ -1672,6 +1694,7 @@ static void resolveHandles(void) {
     if (!img) return;
 
     g_playerRootClass   = IL2CPP::klass(GameData::kNsPlayer,     GameData::kPlayerRootClass);
+    g_playerMobViewClass= IL2CPP::klass(GameData::kNsPlayer,     GameData::kPlayerMobClass);
     g_cameraCtrlClass   = IL2CPP::klass(GameData::kNsCameraCtrl, GameData::kCameraCtrlClass);
 
     if (g_playerRootClass) {
@@ -1679,6 +1702,10 @@ static void resolveHandles(void) {
         g_getActiveMobView = IL2CPP::resolveMethod(g_playerRootClass, GameData::kMGetActiveMobView, 0);
         g_getMainCamera    = IL2CPP::resolveMethod(g_playerRootClass, GameData::kMGetMainCamera, 0);
         g_getRootTransform = IL2CPP::resolveMethod(g_playerRootClass, GameData::kMGetTransform, 0);
+    }
+    if (g_playerMobViewClass) {
+        g_getHeadTransform  = IL2CPP::resolveMethod(g_playerMobViewClass, GameData::kMGetHeadTransform, 0);
+        g_getChestTransform = IL2CPP::resolveMethod(g_playerMobViewClass, GameData::kMGetChestTransform, 0);
     }
     if (g_cameraCtrlClass) {
         g_getRenderCamera  = IL2CPP::resolveMethod(g_cameraCtrlClass, GameData::kMGetRenderCamera, 0);
@@ -1700,8 +1727,10 @@ static void ensureCameraClass(void* obj) {
     g_cameraClass = IL2CPP::objectGetClass(obj);
     if (g_cameraClass) {
         g_worldToScreen = IL2CPP::resolveMethod(g_cameraClass, GameData::kMWorldToScreen, 1);
-        if (!g_worldToScreen)
+        if (!g_worldToScreen) {
             g_worldToScreen = IL2CPP::resolveMethod(g_cameraClass, GameData::kMWorldToScreen, 2);
+            g_worldToScreenTwoArg = (g_worldToScreen != nullptr);
+        }
     }
 }
 
@@ -1733,7 +1762,10 @@ static bool worldToScreen(void* cam, Vec3 w, CGSize scr, CGPoint* out) {
     ensureCameraClass(cam);
     if (!g_worldToScreen) return false;
     Vec3 arg = w;
-    void* args[1] = { &arg };
+    int monoEye = 0;
+    void* oneArg[1] = { &arg };
+    void* twoArgs[2] = { &arg, &monoEye };
+    void** args = g_worldToScreenTwoArg ? twoArgs : oneArg;
     void* r = IL2CPP::invokeMethod(g_worldToScreen, cam, args);
     if (!r) return false;
     Vec3 sp = *(Vec3*)((uint8_t*)r + 0x10);
