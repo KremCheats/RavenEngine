@@ -1361,7 +1361,7 @@ static UIColor* espPaletteColor(int index) {
 - (void)attach {
     if (self.window) return;
     self.window = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
-    self.window.windowLevel = UIWindowLevelAlert + 50.0;
+    self.window.windowLevel = UIWindowLevelNormal + 1.0;
     self.window.backgroundColor = [UIColor clearColor];
     self.window.userInteractionEnabled = NO;
     self.window.rootViewController = [UIViewController new];
