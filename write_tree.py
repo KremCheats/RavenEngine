@@ -93,6 +93,7 @@ w("Src/Common.h", r"""
 #define RAVEN_LOCAL_VERSION "1.0.0"
 
 struct Vec3 { float x, y, z; };
+struct Vec2 { float x, y; };
 struct Matrix4x4 { float m[16]; };
 
 #define RAVEN_RED    [UIColor colorWithRed:0.835 green:0.122 blue:0.157 alpha:1.0]
@@ -1943,6 +1944,13 @@ static bool invokeVec3(void* method, void* obj, Vec3* out) {
     *out = *(Vec3*)((uint8_t*)r + 0x10);
     return isfinite(out->x) && isfinite(out->y) && isfinite(out->z);
 }
+static bool invokeVec2(void* method, void* obj, Vec2* out) {
+    if (!method || !obj || !out) return false;
+    void* r = IL2CPP::invokeMethod(method, obj, nullptr);
+    if (!r) return false;
+    *out = *(Vec2*)((uint8_t*)r + 0x10);
+    return isfinite(out->x) && isfinite(out->y);
+}
 static bool invokeQuat(void* method, void* obj, float* x, float* y, float* z, float* w) {
     if (!method || !obj) return false;
     void* r = IL2CPP::invokeMethod(method, obj, nullptr);
@@ -2221,6 +2229,13 @@ void tick() {
         RAVEN_LOG("gyro-chain: local=%p input=%p inputClass=%p rotation=%p rotationClass=%p expectedInput=%p expectedRotation=%p",
                   localPlayer, inputController, inputClass, rotationSensor, rotationClass,
                   g_displayInputClass, g_displayRotationClass);
+        Vec2 delta = {0, 0};
+        Vec2 updateDelta = {0, 0};
+        bool haveDelta = invokeVec2(g_rotationDelta, rotationSensor, &delta);
+        bool haveUpdateDelta = invokeVec2(g_updateRotationDelta, rotationSensor, &updateDelta);
+        RAVEN_LOG("gyro-delta: degrees=%d %.4f %.4f update=%d %.4f %.4f",
+                  haveDelta, delta.x, delta.y, haveUpdateDelta,
+                  updateDelta.x, updateDelta.y);
     }
 
     int localTeam = g_getTeamId ? invokeInt(g_getTeamId, localPlayer) : 0;
