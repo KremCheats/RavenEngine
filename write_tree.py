@@ -1530,8 +1530,6 @@ static bool worldToScreen(void* camera, Vec3 world, CGSize scr, CGPoint* out) {
             s_slotDumpCount++;
         }
 
-        if (!isLiveCombatPlayer(p)) continue;
-
         void* healthComp = readPtr(p, GameData::PlayerRoot::PlayerHealth);
         if (ptrOk(healthComp)) {
             if (g_getIsDead && invokeBool(g_getIsDead, healthComp)) continue;
@@ -1871,8 +1869,6 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera,
         void* p = items[i];
         if (!p || p == localPlayer) continue;
         if (!ptrOk(p)) continue;
-        if (!isLiveCombatPlayer(p)) continue;   // phantom-slot gate
-
         int team = g_getTeamId ? invokeInt(g_getTeamId, p) : 0;
         if (team != 0 && team == localTeam) continue;
 
