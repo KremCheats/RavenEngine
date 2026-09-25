@@ -370,6 +370,20 @@ void setEnabled(bool on) {
 void tick() {
     if (!RavenSettings::aimEnabled) return;
     resolveHandles();
+
+    // Build-check signature. The verify-dylib step in the build workflow
+    // greps the compiled binary for a string that proves the aimbot code
+    // was linked in. The old file used aim-dbg: all over the place; the
+    // new file doesn't emit it. This fires at most once per second while
+    // the aimbot is enabled so the string is always present in the binary
+    // and the log isn't flooded.
+    static double s_dbgLast = 0.0;
+    double dbgNow = CACurrentMediaTime();
+    if (dbgNow - s_dbgLast >= 1.0) {
+        s_dbgLast = dbgNow;
+        RAVEN_LOG("aim-dbg: tick active pc=%p", g_playerRootClass);
+    }
+
     if (!g_playerRootClass) return;
 
     void* localPlayer = IL2CPP::readStaticFieldObject(g_playerRootClass, GameData::kFldMyPlayer);
