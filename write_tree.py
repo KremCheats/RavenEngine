@@ -1767,6 +1767,14 @@ static void* g_gyroAttitude        = nullptr;
 static void* g_gyroRotationRate    = nullptr;
 static void* g_gyroGravity         = nullptr;
 static bool  g_gyroResolved        = false;
+static void* g_newGyroClass        = nullptr;
+static void* g_attitudeClass       = nullptr;
+static void* g_gravityClass        = nullptr;
+static void* g_accelClass          = nullptr;
+static void* g_newGyroCurrent      = nullptr;
+static void* g_attitudeCurrent     = nullptr;
+static void* g_gravityCurrent      = nullptr;
+static void* g_accelCurrent        = nullptr;
 static bool  g_resolved            = false;
 static void* g_lockedTarget        = nullptr;
 static double g_lockedSince        = 0.0;
@@ -1834,10 +1842,20 @@ static void resolveHandles(void) {
         g_gyroGravity        = IL2CPP::resolveMethod(g_gyroClass, "get_gravity", 0);
     }
     g_gyroResolved = (g_getGyro && g_gyroClass);
-    RAVEN_LOG("gyro-resolve: inputClass=%p gyroClass=%p getGyro=%p enabled=%p interval=%p attitude=%p rate=%p gravity=%p ready=%d",
+    g_newGyroClass  = IL2CPP::klass("UnityEngine.InputSystem", "Gyroscope");
+    g_attitudeClass = IL2CPP::klass("UnityEngine.InputSystem", "AttitudeSensor");
+    g_gravityClass  = IL2CPP::klass("UnityEngine.InputSystem", "GravitySensor");
+    g_accelClass    = IL2CPP::klass("UnityEngine.InputSystem", "Accelerometer");
+    if (g_newGyroClass)  g_newGyroCurrent  = IL2CPP::resolveMethod(g_newGyroClass, "get_current", 0);
+    if (g_attitudeClass) g_attitudeCurrent = IL2CPP::resolveMethod(g_attitudeClass, "get_current", 0);
+    if (g_gravityClass)  g_gravityCurrent  = IL2CPP::resolveMethod(g_gravityClass, "get_current", 0);
+    if (g_accelClass)    g_accelCurrent    = IL2CPP::resolveMethod(g_accelClass, "get_current", 0);
+    RAVEN_LOG("gyro-resolve: inputClass=%p gyroClass=%p getGyro=%p enabled=%p interval=%p attitude=%p rate=%p gravity=%p ready=%d newGyro=%p/%p attitudeSensor=%p/%p gravitySensor=%p/%p accelerometer=%p/%p",
               g_inputClass, g_gyroClass, g_getGyro, g_gyroEnabled,
               g_gyroUpdateInterval, g_gyroAttitude, g_gyroRotationRate,
-              g_gyroGravity, g_gyroResolved);
+              g_gyroGravity, g_gyroResolved, g_newGyroClass, g_newGyroCurrent,
+              g_attitudeClass, g_attitudeCurrent, g_gravityClass, g_gravityCurrent,
+              g_accelClass, g_accelCurrent);
     g_resolved = (g_playerRootClass && g_cameraCtrlClass && g_getTeamId &&
                   g_getActiveMobView && g_getRenderCamera);
 }
