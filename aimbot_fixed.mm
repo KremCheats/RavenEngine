@@ -25,9 +25,8 @@ static void* g_worldToScreen       = nullptr;
 static bool  g_worldToScreenTwoArg = false;
 static void* g_getRootTransform    = nullptr;
 static void* g_displayRotationClass = nullptr;
-static void* g_updateGyro0          = nullptr;
-static void* g_updateGyro1          = nullptr;
-static void* g_updateGyro2          = nullptr;
+static void* g_rotationDelta        = nullptr;
+static void* g_updateRotationDelta  = nullptr;
 static bool  g_resolved            = false;
 static void* g_lockedTarget        = nullptr;
 static double g_lockedSince        = 0.0;
@@ -69,13 +68,9 @@ static void resolveHandles(void) {
     }
     g_displayRotationClass = IL2CPP::klass("CombatMaster.Battle.InputControllers", "DisplayRotationSensor");
     if (g_displayRotationClass) {
-        g_updateGyro0 = IL2CPP::resolveMethod(g_displayRotationClass, "UpdateGyroAdditiveInput", 0);
-        g_updateGyro1 = IL2CPP::resolveMethod(g_displayRotationClass, "UpdateGyroAdditiveInput", 1);
-        g_updateGyro2 = IL2CPP::resolveMethod(g_displayRotationClass, "UpdateGyroAdditiveInput", 2);
+        g_rotationDelta       = IL2CPP::resolveMethod(g_displayRotationClass, "get_DegreesDelta", 0);
+        g_updateRotationDelta = IL2CPP::resolveMethod(g_displayRotationClass, "get_UpdateDegreesDelta", 0);
     }
-    RAVEN_LOG("aim-signature: displayUpdate=%p argc=%d param0=%s",
-              g_updateGyro1, IL2CPP::methodParamCount(g_updateGyro1),
-              IL2CPP::methodParamType(g_updateGyro1, 0));
     g_resolved = (g_playerRootClass && g_cameraCtrlClass && g_getTeamId &&
                   g_getActiveMobView && g_getRenderCamera);
 }
@@ -154,9 +149,33 @@ static bool worldToScreen(void* cam, Vec3 w, CGSize scr, CGPoint* out) {
             out->y >= -100 && out->y <= scr.height + 100);
 }
 
-static void* findBestTarget(void* localPlayer, int localTeam, void* camera,
-                            Vec3* outAimPoint)
-{
+struct FrozenDetector {
+    float lastX = 0.0f, lastY = 0.0f, lastZ = 0.0f;
+    int   identicalCount = 0;
+    bool  warned = false;
+    void* boundTo = nullptr;
+
+    void reset(void* local) {
+        lastX = lastY = lastZ = 0.0f;
+        identicalCount = 0;
+        warned = false;
+        boundTo = local;
+    }
+    bool observe(void* local, Vec3 v) {
+        if (local != boundTo) reset(local);
+        bool same = (v.x == lastX && v.y == lastY && v.z == lastZ);
+        lastX = v.x; lastY = v.y; lastZ = v.z;
+        if (same) { if (identicalCount < 1000000) identicalCount++; }
+        else { identicalCount = 0; }
+        if (identicalCount >= 60 && !warned) {
+            warned = true;
+            RAVEN_LOG("aim-frozen: root transform stale for %d ticks", identicalCount);
+        }
+        return !warned;
+    }
+};
+
+static void* findBestTarget(void* localPlayer, int localTeam, void* camera, Vec3* outAimPoint) {
     void* list = IL2CPP::readStaticFieldObject(g_playerRootClass, GameData::kFldAllPlayers);
     if (!ptrOk(list)) return nullptr;
 
@@ -168,6 +187,17 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera,
     CGSize scr = [UIScreen mainScreen].bounds.size;
     CGPoint center = CGPointMake(scr.width / 2.0, scr.height / 2.0);
     float fovPx = (RavenSettings::aimFov / 90.0f) * (scr.width / 2.0f);
+
+    if (g_lockedTarget) {
+        bool stillPresent = false;
+        for (int i = 0; i < count; i++) {
+            if (items[i] == g_lockedTarget) { stillPresent = true; break; }
+        }
+        if (!stillPresent) {
+            g_lockedTarget = nullptr;
+            g_lockedSince = 0.0;
+        }
+    }
 
     void* best = nullptr;
     float bestDist = FLT_MAX;
@@ -204,7 +234,7 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera,
             bonePos.y += (RavenSettings::aimBone == 0) ? 1.65f : 1.15f;
         }
         Vec3 delta = {targetPos.x - localPos.x, targetPos.y - localPos.y, targetPos.z - localPos.z};
-        float worldDistance = sqrtf(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
+        float worldDistance = sqrtf(delta.x*delta.x + delta.y*delta.y + delta.z*delta.z);
         if (RavenSettings::aimMaxDist > 0.0f && worldDistance > RavenSettings::aimMaxDist) continue;
 
         CGPoint screen;
@@ -212,15 +242,8 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera,
 
         float d = hypotf(screen.x - center.x, screen.y - center.y);
         if (d > fovPx) continue;
-        if (p == g_lockedTarget) {
-            lockedAim = bonePos;
-            lockedVisible = true;
-        }
-        if (d < bestDist) {
-            bestDist = d;
-            best = p;
-            bestAim = bonePos;
-        }
+        if (p == g_lockedTarget) { lockedAim = bonePos; lockedVisible = true; }
+        if (d < bestDist) { bestDist = d; best = p; bestAim = bonePos; }
     }
 
     double now = CACurrentMediaTime();
@@ -244,39 +267,7 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera,
 
 void setEnabled(bool on) {
     RavenSettings::aimEnabled = on;
-    if (!on) {
-        g_lockedTarget = nullptr;
-        g_lockedSince = 0.0;
-    }
-}
-
-static bool applyAdditiveAim(void* sensor, float d_yaw, float d_pitch) {
-    if (!ptrOk(sensor)) return false;
-
-    if (g_updateGyro1) {
-        const char* t = IL2CPP::methodParamType(g_updateGyro1, 0);
-        if (t && strstr(t, "Vector2")) {
-            Vec2 delta = { d_yaw, d_pitch };
-            void* args[1] = { &delta };
-            IL2CPP::invokeMethod(g_updateGyro1, sensor, args);
-            return true;
-        }
-        if (t && (strstr(t, "Single") || strstr(t, "Float"))) {
-            void* args[1] = { &d_yaw };
-            IL2CPP::invokeMethod(g_updateGyro1, sensor, args);
-            return true;
-        }
-        Vec2 delta = { d_yaw, d_pitch };
-        void* args[1] = { &delta };
-        IL2CPP::invokeMethod(g_updateGyro1, sensor, args);
-        return true;
-    }
-    if (g_updateGyro2) {
-        void* args[2] = { &d_yaw, &d_pitch };
-        IL2CPP::invokeMethod(g_updateGyro2, sensor, args);
-        return true;
-    }
-    return false;
+    if (!on) { g_lockedTarget = nullptr; g_lockedSince = 0.0; }
 }
 
 void tick() {
@@ -299,24 +290,48 @@ void tick() {
         camera = invokePtr(g_getMainCamera, localPlayer);
     if (!ptrOk(camera)) return;
 
+    // ---- Local eye position ----
     void* localT = g_getRootTransform ? invokePtr(g_getRootTransform, localPlayer) : nullptr;
-    Vec3 src = {0,0,0};
-    if (!ptrOk(localT) || !readTransformPos(localT, &src)) return;
-    src.y += 1.65f;
+    Vec3 srcA = {0,0,0};
+    bool haveA = ptrOk(localT) && readTransformPos(localT, &srcA);
 
+    static void* s_camGetTransform = nullptr;
+    if (!s_camGetTransform) {
+        ensureCameraClass(camera);
+        if (g_cameraClass)
+            s_camGetTransform = resolveInherited(g_cameraClass, GameData::kMGetTransform, 0);
+    }
+    void* camT = s_camGetTransform ? invokePtr(s_camGetTransform, camera) : nullptr;
+    Vec3 srcB = {0,0,0};
+    bool haveB = ptrOk(camT) && readTransformPos(camT, &srcB);
+
+    static FrozenDetector s_frozen;
+    Vec3 src = {0,0,0};
+    bool usingCamera = false;
+    if (haveA) {
+        bool liveA = s_frozen.observe(localPlayer, srcA);
+        if (liveA) { src = srcA; }
+        else if (haveB) { src = srcB; usingCamera = true; }
+        else return;
+    } else if (haveB) { src = srcB; usingCamera = true; }
+    else return;
+    if (!usingCamera) src.y += 1.65f;
+
+    // ---- Target ----
     Vec3 aimPoint = {0,0,0};
     void* target = findBestTarget(localPlayer, localTeam, camera, &aimPoint);
     if (!target) return;
 
+    // ---- Screen-space delta ----
     CGSize scr = [UIScreen mainScreen].bounds.size;
     CGPoint screen;
     if (!worldToScreen(camera, aimPoint, scr, &screen)) return;
 
     float dx_px = screen.x - scr.width * 0.5f;
-    float dy_px = screen.y -(- scr.height * 0.max5f;
+    float dy_px = screen.y - scr.height * 0.5f;
 
-    float fovDeg = MAX(10.0,f, RavenSettings::aimFov);
-    float MIN halfFovDeg = fov * 0.5f;
+    float fov = MAX(10.0f, RavenSettings::aimFov);
+    float halfFovDeg = fov * 0.5f;
     float degPerPxX = halfFovDeg / (scr.width * 0.5f);
     float degPerPxY = halfFovDeg / (scr.height * 0.5f);
 
@@ -324,23 +339,53 @@ void tick() {
     float d_pitch = -dy_px * degPerPxY;
 
     float smooth = MAX(1.0f, RavenSettings::aimSmooth);
-    float factor = 1.0f / smooth;
-    d_yaw   *= factor;
-    d_pitch *= factor;
+    d_yaw   *= (1.0f / smooth);
+    d_pitch *= (1.0f / smooth);
 
     float maxDeg = 20.0f;
     d_yaw   = MAX(-maxDeg, MIN(maxDeg, d_yaw));
-    d_pitch = MAX(maxDeg, d_pitch));
+    d_pitch = MAX(-maxDeg, MIN(maxDeg, d_pitch));
 
+    // ---- Write delta to sensor field ----
+    //
+    // Root cause fix. The delta the camera consumes lives at sensor+0x38
+    // (confirmed via get_DegreesDelta matching that offset in diag). The
+    // prior version wrote to +0x28 which is an empty scratch field, and
+    // additionally called UpdateGyroAdditiveInput with a Vec2 where the
+    // method takes System.Boolean — that bool-garbage was spuriously
+    // enabling gyro additive input, producing the "camera drifts up"
+    // behavior. Both removed.
+    //
+    // We add our delta onto whatever is already there (touch / gyro) so
+    // we blend rather than compete.
+    //
+    // OFFSET 0x38/0x3C — confirm against get_DegreesDelta() output.
+    // OFFSET 0x40/0x44 — mirror, in case camera consumes the "update" variant.
     void* inputController = readPtr(localPlayer, 0xE8);
     void* rotationSensor = ptrOk(inputController) ? readPtr(inputController, 0x168) : nullptr;
 
-    bool applied = applyAdditiveAim(rotationSensor, d_yaw, d_pitch);
+    bool applied = false;
+    float pre38y = 0, pre38p = 0, post38y = 0, post38p = 0;
+    if (ptrOk(rotationSensor)) {
+        uint8_t* p = (uint8_t*)rotationSensor;
+        pre38y = *(float*)(p + 0x38);
+        pre38p = *(float*)(p + 0x3C);
+        if (isfinite(pre38y) && isfinite(pre38p) &&
+            fabsf(pre38y) < 720.f && fabsf(pre38p) < 720.f) {
+            *(float*)(p + 0x38) = pre38y + d_yaw;
+            *(float*)(p + 0x3C) = pre38p + d_pitch;
+            *(float*)(p + 0x40) = *(float*)(p + 0x40) + d_yaw;
+            *(float*)(p + 0x44) = *(float*)(p + 0x44) + d_pitch;
+            post38y = *(float*)(p + 0x38);
+            post38p = *(float*)(p + 0x3C);
+            applied = true;
+        }
+    }
 
     static int applyLogCount = 0;
-    if (applyLogCount < 60 || !applied) {
-        RAVEN_LOG("aim-apply: d_yaw=%.2f d_pitch=%.2f applied=%d sensor=%p input=%p target=%p",
-                  d_yaw, d_pitch, applied, rotationSensor, inputController, target);
+    if (applyLogCount < 120) {
+        RAVEN_LOG("aim-apply: d=(%.2f,%.2f) applied=%d sensor=%p pre=(%.3f,%.3f) post=(%.3f,%.3f)",
+                  d_yaw, d_pitch, applied, rotationSensor, pre38y, pre38p, post38y, post38p);
         applyLogCount++;
     }
 }
