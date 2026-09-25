@@ -46,6 +46,7 @@ static float  g_lockedScreenD     = FLT_MAX;
 // 90.000 / -119.959 in the same tick). We never let a write cross.
 static const float AIM_PITCH_MIN      = -89.0f;
 static const float AIM_PITCH_MAX      =  89.0f;
+static const float AIM_RAW_PITCH_LIMIT = 90.0f;  // reject values beyond legal pitch
 static const float AIM_MAX_YAW_STEP   =   8.0f;   // deg / tick
 static const float AIM_MAX_PITCH_STEP =   6.0f;   // deg / tick
 static const int   AIM_LOCK_MIN_TICKS =  10;
@@ -485,9 +486,16 @@ void tick() {
     void* rotationSensor = ptrOk(inputController) ? readPtr(inputController, 0x168) : nullptr;
 
     bool applied = false;
+    bool pitchSpike = false;
+    static void* s_pitchSensor = nullptr;
+    static float s_lastGoodPitch = 0.0f;
     float pre38y = 0, pre38p = 0, post38y = 0, post38p = 0;
     if (ptrOk(rotationSensor)) {
         uint8_t* p = (uint8_t*)rotationSensor;
+        if (rotationSensor != s_pitchSensor) {
+            s_pitchSensor = rotationSensor;
+            s_lastGoodPitch = 0.0f;
+        }
         float rawY = *(float*)(p + 0x38);
         float rawP = *(float*)(p + 0x3C);
         pre38y = rawY;
@@ -496,7 +504,13 @@ void tick() {
         if (isfinite(rawY) && isfinite(rawP)) {
             // 1. normalize incoming values into legal range
             float baseY = wrap180f(rawY);
-            float baseP = clampf(rawP, AIM_PITCH_MIN, AIM_PITCH_MAX);
+            // A corrupted pitch sample must not be clamped to ±89: doing
+            // that turns a transient spike into an immediate camera snap.
+            // Treat it as a neutral sensor base and only apply this tick's
+            // bounded aim step.
+            pitchSpike = fabsf(rawP) > AIM_RAW_PITCH_LIMIT;
+            float baseP = pitchSpike ? s_lastGoodPitch : clampf(rawP, AIM_PITCH_MIN, AIM_PITCH_MAX);
+            if (!pitchSpike) s_lastGoodPitch = baseP;
 
             // 2. apply the already step-clamped delta
             float newY = wrap180f(baseY + d_yaw);
@@ -515,8 +529,9 @@ void tick() {
 
     static int applyLogCount = 0;
     if (applyLogCount < 1000) {
-        RAVEN_LOG("aim-apply: target=%p lockTicks=%d screen=(%.2f,%.2f) ret=(%.2f,%.2f) pxerr=(%.2f,%.2f) d=(%.2f,%.2f) applied=%d sensor=%p pre=(%.3f,%.3f) post=(%.3f,%.3f)",
+        RAVEN_LOG("aim-apply: target=%p lockTicks=%d pitchSpike=%d screen=(%.2f,%.2f) ret=(%.2f,%.2f) pxerr=(%.2f,%.2f) d=(%.2f,%.2f) applied=%d sensor=%p pre=(%.3f,%.3f) post=(%.3f,%.3f)",
                   target, g_lockTicks,
+                  pitchSpike,
                   screen.x, screen.y, retX, retY, dx_px, dy_px,
                   d_yaw, d_pitch, applied, rotationSensor,
                   pre38y, pre38p, post38y, post38p);
