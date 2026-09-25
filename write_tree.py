@@ -1007,6 +1007,8 @@ void* gameImage() {
             "_CombatMaster.Battle",
             "_CombatMaster.View.dll",
             "_CombatMaster.View",
+            "UnityEngine.CoreModule.dll",
+            "UnityEngine.CoreModule",
             "Assembly-CSharp.dll",
             "Assembly-CSharp",
             "bolt.user.dll",
@@ -1222,6 +1224,8 @@ static void ensureTransformHandles(void* transformObj) {
 static void ensureCameraHandles(void* cameraObj) {
     if (!cameraObj || g_cameraClass) return;
     g_cameraClass = IL2CPP::objectGetClass(cameraObj);
+    if (!g_cameraClass)
+        g_cameraClass = IL2CPP::klass("UnityEngine", "Camera");
     if (g_cameraClass) {
         g_worldToScreen = IL2CPP::resolveMethod(g_cameraClass, GameData::kMWorldToScreen, 1);
         if (!g_worldToScreen) {
@@ -1725,6 +1729,8 @@ static void ensureTransformClass(void* obj) {
 static void ensureCameraClass(void* obj) {
     if (!obj || g_cameraClass) return;
     g_cameraClass = IL2CPP::objectGetClass(obj);
+    if (!g_cameraClass)
+        g_cameraClass = IL2CPP::klass("UnityEngine", "Camera");
     if (g_cameraClass) {
         g_worldToScreen = IL2CPP::resolveMethod(g_cameraClass, GameData::kMWorldToScreen, 1);
         if (!g_worldToScreen) {
