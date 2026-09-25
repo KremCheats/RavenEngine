@@ -29,6 +29,7 @@ static void* g_getRootTransform    = nullptr;
 static void* g_displayRotationClass = nullptr;
 static void* g_rotationDelta        = nullptr;
 static void* g_updateRotationDelta  = nullptr;
+static void* g_clearRotationDelta   = nullptr;
 static bool  g_resolved            = false;
 
 // ---- lock state -------------------------------------------------
@@ -43,34 +44,41 @@ static const float AIM_MAX_PITCH_STEP =   6.0f;
 static const int   AIM_LOCK_MIN_TICKS =  10;
 static const float AIM_SWITCH_HYST_PX =  60.0f;
 
-// ---- methodPointer hook state ----------------------------------
-// We no longer write to +0x38/+0x3C. The game clears that field
-// every frame and reads it from a code path we cannot synchronize
-// with. Instead we hook the getter (get_DegreesDelta) and add our
-// delta to whatever it returns. That makes us a co-producer, not
-// a competing writer, and there is no window for the game to clear
-// our value before it reads.
-typedef Vec2 (*t_getDegreesDelta)(void* self, void* methodInfo);
-static t_getDegreesDelta g_orig_getDegreesDelta = nullptr;
+// ---- ClearDegreesDelta hook ------------------------------------
+//
+// Earlier build hooked get_DegreesDelta. That hook installed clean
+// but never fired — the getter is inlined at IL2CPP translation
+// time and the game never calls through the MethodInfo's method
+// pointer. So the hook was dead code.
+//
+// ClearDegreesDelta is called by the game's own update pipeline at
+// the end of every frame, after it has read and consumed the delta.
+// We hook it, let the original clear the field, then write our
+// pending delta. The next frame's read sees our value. Single-order
+// write, no race, no timing window.
+typedef void (*t_ClearDegreesDelta)(void* self, void* methodInfo);
+static t_ClearDegreesDelta g_orig_ClearDegreesDelta = nullptr;
 static void*  g_hookedSensor     = nullptr;
 static float  g_pendingYaw       = 0.0f;
 static float  g_pendingPitch     = 0.0f;
 static bool   g_pendingFresh     = false;
 static int    g_hookFireCount    = 0;
 
-extern "C" Vec2 hook_getDegreesDelta(void* self, void* methodInfo) {
-    Vec2 v = g_orig_getDegreesDelta(self, methodInfo);
-    if (g_pendingFresh && self == g_hookedSensor) {
-        v.x += g_pendingYaw;
-        v.y += g_pendingPitch;
+extern "C" void hook_ClearDegreesDelta(void* self, void* methodInfo) {
+    g_orig_ClearDegreesDelta(self, methodInfo);
+
+    if (g_pendingFresh) {
+        uint8_t* p = (uint8_t*)self;
+        *(float*)(p + 0x38) = g_pendingYaw;
+        *(float*)(p + 0x3C) = g_pendingPitch;
         g_pendingFresh = false;
-        if (g_hookFireCount < 30) {
+
+        if (g_hookFireCount < 40) {
             g_hookFireCount++;
-            RAVEN_LOG("aim-hook: fired n=%d self=%p added=(%.3f,%.3f) out=(%.3f,%.3f)",
-                      g_hookFireCount, self, g_pendingYaw, g_pendingPitch, v.x, v.y);
+            RAVEN_LOG("aim-hook: ClearDegreesDelta fired n=%d self=%p wrote=(%.3f,%.3f)",
+                      g_hookFireCount, self, g_pendingYaw, g_pendingPitch);
         }
     }
-    return v;
 }
 
 static inline bool ptrOk(void* p) {
@@ -112,29 +120,25 @@ static void resolveHandles(void) {
     if (g_cameraCtrlClass) {
         g_getRenderCamera  = IL2CPP::resolveMethod(g_cameraCtrlClass, GameData::kMGetRenderCamera, 0);
     }
+
     g_displayRotationClass = IL2CPP::klass("CombatMaster.Battle.InputControllers", "DisplayRotationSensor");
     if (g_displayRotationClass) {
         g_rotationDelta       = IL2CPP::resolveMethod(g_displayRotationClass, "get_DegreesDelta", 0);
         g_updateRotationDelta = IL2CPP::resolveMethod(g_displayRotationClass, "get_UpdateDegreesDelta", 0);
+        g_clearRotationDelta  = IL2CPP::resolveMethod(g_displayRotationClass, "ClearDegreesDelta", 0);
 
-        if (g_rotationDelta) {
-            void* f0 = *(void**)((uint8_t*)g_rotationDelta + 0x00);
-            void* f1 = *(void**)((uint8_t*)g_rotationDelta + 0x08);
-            void* f2 = *(void**)((uint8_t*)g_rotationDelta + 0x10);
-            void* f3 = *(void**)((uint8_t*)g_rotationDelta + 0x18);
-            RAVEN_LOG("aim-hook: MethodInfo=%p fields=[%p %p %p %p]",
-                      g_rotationDelta, f0, f1, f2, f3);
-
-            void** slot = (void**)((uint8_t*)g_rotationDelta + 0x00);
-            void* orig = *slot;
-            if (ptrOk(orig)) {
-                g_orig_getDegreesDelta = (t_getDegreesDelta)orig;
-                *slot = (void*)hook_getDegreesDelta;
-                RAVEN_LOG("aim-hook: installed get_DegreesDelta hook, orig=%p slot=%p",
-                          g_orig_getDegreesDelta, slot);
+        if (g_clearRotationDelta) {
+            void* f0 = *(void**)((uint8_t*)g_clearRotationDelta + 0x00);
+            RAVEN_LOG("aim-hook: ClearDegreesDelta MethodInfo=%p pointer=%p", g_clearRotationDelta, f0);
+            if (ptrOk(f0)) {
+                g_orig_ClearDegreesDelta = (t_ClearDegreesDelta)f0;
+                *(void**)((uint8_t*)g_clearRotationDelta + 0x00) = (void*)hook_ClearDegreesDelta;
+                RAVEN_LOG("aim-hook: installed ClearDegreesDelta hook, orig=%p", g_orig_ClearDegreesDelta);
             } else {
-                RAVEN_LOG("aim-hook: methodPointer at +0x00 not valid (%p), hook skipped", orig);
+                RAVEN_LOG("aim-hook: ClearDegreesDelta pointer invalid (%p), hook skipped", f0);
             }
+        } else {
+            RAVEN_LOG("aim-hook: ClearDegreesDelta not resolved");
         }
     }
     g_resolved = (g_playerRootClass && g_cameraCtrlClass && g_getTeamId &&
@@ -467,10 +471,10 @@ void tick() {
     }
 
     static int applyLogCount = 0;
-    if (applyLogCount < 120) {
+    if (applyLogCount < 60) {
         RAVEN_LOG("aim-apply: d=(%.2f,%.2f) sensor=%p hooked=%d pending=%d",
                   d_yaw, d_pitch, rotationSensor,
-                  g_orig_getDegreesDelta != nullptr ? 1 : 0,
+                  g_orig_ClearDegreesDelta != nullptr ? 1 : 0,
                   g_pendingFresh ? 1 : 0);
         applyLogCount++;
     }
