@@ -2285,11 +2285,11 @@ void tick() {
         RAVEN_LOG("gyro-delta: degrees=%d %.4f %.4f update=%d %.4f %.4f",
                   haveDelta, delta.x, delta.y, haveUpdateDelta,
                   updateDelta.x, updateDelta.y);
-        Vec2 rawGyro = { readFloat(rotationSensor, 0x28), readFloat(rotationSensor, 0x2C) };
-        Vec2 rawUpdateGyro = { readFloat(rotationSensor, 0x30), readFloat(rotationSensor, 0x34) };
-        Vec2 rawDegrees = { readFloat(rotationSensor, 0x38), readFloat(rotationSensor, 0x3C) };
-        Vec2 rawUpdateDegrees = { readFloat(rotationSensor, 0x40), readFloat(rotationSensor, 0x44) };
-        Vec2 rawLook = { readFloat(rotationSensor, 0x48), readFloat(rotationSensor, 0x4C) };
+        Vec2 rawGyro = { IL2CPP::read<float>(rotationSensor, 0x28), IL2CPP::read<float>(rotationSensor, 0x2C) };
+        Vec2 rawUpdateGyro = { IL2CPP::read<float>(rotationSensor, 0x30), IL2CPP::read<float>(rotationSensor, 0x34) };
+        Vec2 rawDegrees = { IL2CPP::read<float>(rotationSensor, 0x38), IL2CPP::read<float>(rotationSensor, 0x3C) };
+        Vec2 rawUpdateDegrees = { IL2CPP::read<float>(rotationSensor, 0x40), IL2CPP::read<float>(rotationSensor, 0x44) };
+        Vec2 rawLook = { IL2CPP::read<float>(rotationSensor, 0x48), IL2CPP::read<float>(rotationSensor, 0x4C) };
         RAVEN_LOG("gyro-fields: add=%.4f,%.4f updateAdd=%.4f,%.4f degrees=%.4f,%.4f updateDegrees=%.4f,%.4f look=%.4f,%.4f",
                   rawGyro.x, rawGyro.y, rawUpdateGyro.x, rawUpdateGyro.y,
                   rawDegrees.x, rawDegrees.y, rawUpdateDegrees.x, rawUpdateDegrees.y,
