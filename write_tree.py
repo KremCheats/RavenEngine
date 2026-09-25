@@ -2220,8 +2220,11 @@ void tick() {
     if (!ptrOk(localPlayer)) return;
 
     static void* chainLocal = nullptr;
-    if (chainLocal != localPlayer) {
+    static double chainLastLog = 0.0;
+    double chainNow = CACurrentMediaTime();
+    if (chainLocal != localPlayer || chainNow - chainLastLog >= 0.25) {
         chainLocal = localPlayer;
+        chainLastLog = chainNow;
         void* inputController = readPtr(localPlayer, 0xE8);
         void* rotationSensor = ptrOk(inputController) ? readPtr(inputController, 0x168) : nullptr;
         void* inputClass = ptrOk(inputController) ? IL2CPP::objectGetClass(inputController) : nullptr;
