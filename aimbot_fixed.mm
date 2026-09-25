@@ -514,8 +514,9 @@ void tick() {
     }
 
     static int applyLogCount = 0;
-    if (applyLogCount < 120) {
-        RAVEN_LOG("aim-apply: screen=(%.2f,%.2f) ret=(%.2f,%.2f) pxerr=(%.2f,%.2f) d=(%.2f,%.2f) applied=%d sensor=%p pre=(%.3f,%.3f) post=(%.3f,%.3f)",
+    if (applyLogCount < 1000) {
+        RAVEN_LOG("aim-apply: target=%p lockTicks=%d screen=(%.2f,%.2f) ret=(%.2f,%.2f) pxerr=(%.2f,%.2f) d=(%.2f,%.2f) applied=%d sensor=%p pre=(%.3f,%.3f) post=(%.3f,%.3f)",
+                  target, g_lockTicks,
                   screen.x, screen.y, retX, retY, dx_px, dy_px,
                   d_yaw, d_pitch, applied, rotationSensor,
                   pre38y, pre38p, post38y, post38p);
