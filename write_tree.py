@@ -2098,6 +2098,48 @@ void tick() {
         RAVEN_LOG("aim: movement pointer out of range: %p", movement);
     }
 
+    // Guarded NO-OP probe only. It writes each candidate's exact current
+    // value back to the same address, never a target angle. This verifies
+    // that the fields tolerate a write without changing camera state.
+    static void* noOpMovement = nullptr;
+    static double noOpUntil = 0.0;
+    static double noOpNext = 0.0;
+    static int noOpWrites = 0;
+    static bool noOpHealthy = true;
+    if (movement != noOpMovement) {
+        noOpMovement = movement;
+        noOpUntil = movementOk ? CACurrentMediaTime() + 5.0 : 0.0;
+        noOpNext = 0.0;
+        noOpWrites = 0;
+        noOpHealthy = movementOk;
+        if (movementOk) RAVEN_LOG("rot-noop: armed movement=%p window=5s", movement);
+    }
+    double noOpNow = CACurrentMediaTime();
+    if (movementOk && noOpHealthy && noOpNow < noOpUntil &&
+        noOpWrites < 5 && noOpNow >= noOpNext) {
+        uint8_t* mb = (uint8_t*)movement;
+        float pitch = 0.0f, yaw = 0.0f;
+        memcpy(&pitch, mb + 0x60, sizeof(pitch));
+        memcpy(&yaw,   mb + 0x74, sizeof(yaw));
+        if (!isfinite(pitch) || !isfinite(yaw) || fabsf(pitch) > 720.0f || fabsf(yaw) > 720.0f) {
+            noOpHealthy = false;
+            RAVEN_LOG("rot-noop: rejected nonfinite/range pitch=%.4f yaw=%.4f", pitch, yaw);
+        } else {
+            // Exact-value writes only; no target-derived value enters here.
+            memcpy(mb + 0x60, &pitch, sizeof(pitch));
+            memcpy(mb + 0x74, &yaw, sizeof(yaw));
+            float pitchAfter = 0.0f, yawAfter = 0.0f;
+            memcpy(&pitchAfter, mb + 0x60, sizeof(pitchAfter));
+            memcpy(&yawAfter,   mb + 0x74, sizeof(yawAfter));
+            noOpWrites++;
+            noOpNext = noOpNow + 1.0;
+            bool same = pitchAfter == pitch && yawAfter == yaw;
+            RAVEN_LOG("rot-noop: n=%d pitch=%.4f->%.4f yaw=%.4f->%.4f same=%d",
+                      noOpWrites, pitch, pitchAfter, yaw, yawAfter, same);
+            if (!same) noOpHealthy = false;
+        }
+    }
+
     // ---- movdump ----
     static double g_dumpUntil   = 0.0;
     static void*  g_dumpLocal   = nullptr;
