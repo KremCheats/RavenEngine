@@ -25,6 +25,7 @@ static void* g_getRenderCamera     = nullptr;
 static void* g_cameraClass         = nullptr;
 static void* g_worldToScreen       = nullptr;
 static bool  g_worldToScreenTwoArg = false;
+static bool  g_worldToViewport     = false;
 static void* g_getRootTransform    = nullptr;
 static void* g_displayRotationClass = nullptr;
 static void* g_rotationDelta        = nullptr;
@@ -145,11 +146,20 @@ static void ensureCameraClass(void* obj) {
     if (!g_cameraClass)
         g_cameraClass = IL2CPP::klass("UnityEngine", "Camera");
     if (g_cameraClass) {
-        g_worldToScreen = IL2CPP::resolveMethod(g_cameraClass, GameData::kMWorldToScreen, 1);
+        // Match the ESP path: normalized viewport coordinates are already in
+        // the overlay's coordinate space after multiplying by scr. The old
+        // aim path used WorldToScreenPoint plus nativeBounds scaling, which
+        // can disagree with the accurate ESP boxes on landscape iOS.
+        g_worldToScreen = IL2CPP::resolveMethod(g_cameraClass, "WorldToViewportPoint", 1);
+        g_worldToViewport = (g_worldToScreen != nullptr);
+        if (!g_worldToScreen)
+            g_worldToScreen = IL2CPP::resolveMethod(g_cameraClass, GameData::kMWorldToScreen, 1);
         if (!g_worldToScreen) {
             g_worldToScreen = IL2CPP::resolveMethod(g_cameraClass, GameData::kMWorldToScreen, 2);
             g_worldToScreenTwoArg = (g_worldToScreen != nullptr);
         }
+        if (g_worldToScreen)
+            RAVEN_LOG("aim-w2s: mode=%s method=%p", g_worldToViewport ? "viewport" : "pixels", g_worldToScreen);
     }
 }
 
@@ -191,16 +201,21 @@ static bool worldToScreen(void* cam, Vec3 w, CGSize scr, CGPoint* out) {
     if (sp.z < 0.01f) return false;
     if (!(sp.x == sp.x) || !(sp.y == sp.y) || !(sp.z == sp.z)) return false;
     if (fabsf(sp.x) > 1.0e6f || fabsf(sp.y) > 1.0e6f) return false;
-    CGSize native = [UIScreen mainScreen].nativeBounds.size;
-    CGFloat nativeW = MAX(native.width, native.height);
-    CGFloat nativeH = MIN(native.width, native.height);
-    if (nativeW < 1.0 || nativeH < 1.0) {
-        CGFloat scale = MAX(1.0, [UIScreen mainScreen].scale);
-        nativeW = scr.width * scale;
-        nativeH = scr.height * scale;
+    if (g_worldToViewport) {
+        out->x = sp.x * scr.width;
+        out->y = scr.height - (sp.y * scr.height);
+    } else {
+        CGSize native = [UIScreen mainScreen].nativeBounds.size;
+        CGFloat nativeW = MAX(native.width, native.height);
+        CGFloat nativeH = MIN(native.width, native.height);
+        if (nativeW < 1.0 || nativeH < 1.0) {
+            CGFloat scale = MAX(1.0, [UIScreen mainScreen].scale);
+            nativeW = scr.width * scale;
+            nativeH = scr.height * scale;
+        }
+        out->x = (sp.x / nativeW) * scr.width;
+        out->y = scr.height - ((sp.y / nativeH) * scr.height);
     }
-    out->x = (sp.x / nativeW) * scr.width;
-    out->y = scr.height - ((sp.y / nativeH) * scr.height);
     return (out->x >= -100 && out->x <= scr.width + 100 &&
             out->y >= -100 && out->y <= scr.height + 100);
 }
