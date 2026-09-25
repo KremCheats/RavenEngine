@@ -2516,13 +2516,21 @@ static void forceLandscape(void) {
         _button = [UIButton buttonWithType:UIButtonTypeCustom];
         _button.frame = self.bounds;
         _button.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-        _button.showsMenuAsPrimaryAction = YES;
+        [_button addTarget:self action:@selector(cycleSelection) forControlEvents:UIControlEventTouchUpInside];
         [self addSubview:_button];
         _items = [items copy] ?: @[];
         _selectedIndex = MAX(0, MIN((NSInteger)_items.count - 1, selected));
         [self rebuildMenu];
     }
     return self;
+}
+- (void)cycleSelection {
+    if (_items.count == 0) return;
+    NSInteger next = (_selectedIndex + 1) % (NSInteger)_items.count;
+    self.selectedIndex = next;
+    UISelectionFeedbackGenerator* h = [UISelectionFeedbackGenerator new];
+    [h selectionChanged];
+    if (self.onChange) self.onChange(next);
 }
 - (void)setItems:(NSArray<NSString*>*)items {
     _items = [items copy] ?: @[];
