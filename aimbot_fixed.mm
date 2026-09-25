@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cfloat>
 #include <cstring>
+#include <dlfcn.h>
 
 namespace RavenAimbot {
 
@@ -70,6 +71,26 @@ static void resolveHandles(void) {
     if (g_displayRotationClass) {
         g_rotationDelta       = IL2CPP::resolveMethod(g_displayRotationClass, "get_DegreesDelta", 0);
         g_updateRotationDelta = IL2CPP::resolveMethod(g_displayRotationClass, "get_UpdateDegreesDelta", 0);
+
+        // --- method enumeration probe (temporary diagnostic) ---
+        typedef void* (*t_iter)(void*, void**);
+        typedef const char* (*t_mname)(void*);
+        typedef uint32_t (*t_pcount)(void*);
+        t_iter   il2cpp_class_get_methods      = (t_iter)dlsym(RTLD_DEFAULT, "il2cpp_class_get_methods");
+        t_mname  il2cpp_method_get_name        = (t_mname)dlsym(RTLD_DEFAULT, "il2cpp_method_get_name");
+        t_pcount il2cpp_method_get_param_count = (t_pcount)dlsym(RTLD_DEFAULT, "il2cpp_method_get_param_count");
+        if (il2cpp_class_get_methods && il2cpp_method_get_name) {
+            void* iter = nullptr;
+            void* m = nullptr;
+            int n = 0;
+            while ((m = il2cpp_class_get_methods(g_displayRotationClass, &iter)) != nullptr && n < 200) {
+                const char* name = il2cpp_method_get_name(m);
+                int argc = il2cpp_method_get_param_count ? (int)il2cpp_method_get_param_count(m) : -1;
+                RAVEN_LOG("rotmethod[%d]: %s argc=%d ptr=%p", n, name ? name : "(null)", argc, m);
+                n++;
+            }
+            RAVEN_LOG("rotmethod: enumerated %d methods on DisplayRotationSensor", n);
+        }
     }
     g_resolved = (g_playerRootClass && g_cameraCtrlClass && g_getTeamId &&
                   g_getActiveMobView && g_getRenderCamera);
@@ -348,19 +369,12 @@ void tick() {
 
     // ---- Write delta to sensor field ----
     //
-    // Root cause fix. The delta the camera consumes lives at sensor+0x38
-    // (confirmed via get_DegreesDelta matching that offset in diag). The
-    // prior version wrote to +0x28 which is an empty scratch field, and
-    // additionally called UpdateGyroAdditiveInput with a Vec2 where the
-    // method takes System.Boolean — that bool-garbage was spuriously
-    // enabling gyro additive input, producing the "camera drifts up"
-    // behavior. Both removed.
+    // Delta the camera consumes lives at sensor+0x38 (confirmed against
+    // get_DegreesDelta()). Prior versions wrote to +0x28 (scratch) or
+    // mirrored to +0x40 (unrelated pipeline — caused snap-up). Both removed.
     //
-    // We add our delta onto whatever is already there (touch / gyro) so
-    // we blend rather than compete.
-    //
-    // OFFSET 0x38/0x3C — confirm against get_DegreesDelta() output.
-    // OFFSET 0x40/0x44 — mirror, in case camera consumes the "update" variant.
+    // We add onto whatever is already there so we blend with touch input
+    // rather than replace it.
     void* inputController = readPtr(localPlayer, 0xE8);
     void* rotationSensor = ptrOk(inputController) ? readPtr(inputController, 0x168) : nullptr;
 
@@ -374,8 +388,6 @@ void tick() {
             fabsf(pre38y) < 720.f && fabsf(pre38p) < 720.f) {
             *(float*)(p + 0x38) = pre38y + d_yaw;
             *(float*)(p + 0x3C) = pre38p + d_pitch;
-            *(float*)(p + 0x40) = *(float*)(p + 0x40) + d_yaw;
-            *(float*)(p + 0x44) = *(float*)(p + 0x44) + d_pitch;
             post38y = *(float*)(p + 0x38);
             post38p = *(float*)(p + 0x3C);
             applied = true;
