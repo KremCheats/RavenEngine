@@ -44,8 +44,6 @@ static float  g_lockedScreenD     = FLT_MAX;
 // shows a 500+ value on read. That is the observed snap-up
 // (gyro pitch 585.3184 -> camera clamps to +90 -> yaw jumps to
 // 90.000 / -119.959 in the same tick). We never let a write cross.
-static const float AIM_PITCH_MIN      = -89.0f;
-static const float AIM_PITCH_MAX      =  89.0f;
 static const float AIM_RAW_YAW_LIMIT  = 180.0f;  // reject impossible yaw outliers
 static const float AIM_RAW_PITCH_LIMIT = 90.0f;  // reject values beyond legal pitch
 static const float AIM_MAX_YAW_STEP   =   8.0f;   // deg / tick
