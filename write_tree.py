@@ -1,3 +1,7 @@
+#!/usr/bin/env python3
+# RavenEngine write tree — 2026-09-24 (correction pass)
+# Changes vs. prior tree: Makefile, Src/GameData.h, Src/Aimbot.mm.
+
 import os
 
 def w(path, content):
@@ -7,6 +11,9 @@ def w(path, content):
     with open(path, "w") as f:
         f.write(content.lstrip("\n"))
 
+# ---------------------------------------------------------------------------
+# Makefile — CHANGED: -Wno-unused-variable removed from both flag sets.
+# ---------------------------------------------------------------------------
 w("Makefile", r"""
 TARGET = iphone:clang:latest:14.0
 ARCHS = arm64
@@ -15,8 +22,8 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = Raven
 Raven_FILES = Raven.mm Src/IL2CPP.mm Src/ESP.mm Src/Aimbot.mm Src/Menu.mm Src/Updater.mm Src/Settings.mm
-Raven_CFLAGS = -fobjc-arc -I./Src -std=c++17 -Wno-unused-function -Wno-deprecated-declarations -Wno-unused-variable
-Raven_CCFLAGS = -fobjc-arc -I./Src -std=c++17 -Wno-unused-variable
+Raven_CFLAGS = -fobjc-arc -I./Src -std=c++17 -Wno-unused-function -Wno-deprecated-declarations
+Raven_CCFLAGS = -fobjc-arc -I./Src -std=c++17
 Raven_FRAMEWORKS = UIKit Foundation QuartzCore CoreGraphics
 
 include $(THEOS_MAKE_PATH)/tweak.mk
@@ -76,6 +83,10 @@ struct Matrix4x4 { float m[16]; };
 #endif
 """)
 
+# ---------------------------------------------------------------------------
+# Src/GameData.h — CHANGED: 0x70/0x74 demoted to CANDIDATE_*, 0x60/0x68/0x78
+# marked DEAD_*. The previous "confirmed" claim has no evidence on disk.
+# ---------------------------------------------------------------------------
 w("Src/GameData.h", r"""
 #ifndef RAVEN_GAMEDATA_H
 #define RAVEN_GAMEDATA_H
@@ -83,7 +94,7 @@ w("Src/GameData.h", r"""
 #include <cstdint>
 #include "Updater.h"
 
-// Names + offsets confirmed from IL2CPP recon dump of Combat Master.
+// Names + offsets from IL2CPP recon dump of Combat Master.
 // Battle gameplay classes live in _CombatMaster.Battle.dll
 
 namespace GameData {
@@ -112,13 +123,44 @@ namespace GameData {
         constexpr uint32_t IsRealPlayer     = 0x132;
     }
 
-    // CONFIRMED ROTATION OFFSETS from movdump capture 2026-09-24.
-    // The floats at 0x70 and 0x74 track camera pitch and yaw respectively.
-    // 0x60 / 0x68 were the old unverified write targets and must not be used.
     namespace PlayerMovement {
-        constexpr uint32_t VerticalRotation  = 0x70;   // pitch, degrees
-        constexpr uint32_t HorRotationAngles = 0x74;   // yaw, degrees
-        constexpr uint32_t HeadRotation      = 0x78;   // unused
+        // -----------------------------------------------------------------
+        // DEAD OFFSETS — do not write.
+        //
+        // The 2026-09-24 18:33:39 build wrote pitch to +0x60 and yaw to
+        // +0x68 on every tick. Both offsets were wrong. Scribbling
+        // arbitrary floats into live IL2CPP struct memory caused Unity to
+        // follow a corrupted byte as a pointer and crash inside
+        // UnityRepaint with EXC_BAD_ACCESS (KERN_INVALID_ADDRESS).
+        //
+        // 0x60, 0x68, and 0x78 read 0.000 across every available capture.
+        // They are not rotation.
+        // -----------------------------------------------------------------
+        constexpr uint32_t DEAD_0x60 = 0x60;
+        constexpr uint32_t DEAD_0x68 = 0x68;
+        constexpr uint32_t DEAD_0x78 = 0x78;
+
+        // -----------------------------------------------------------------
+        // CANDIDATE OFFSETS — unverified. Do not write.
+        //
+        // 0x70 and 0x74 have been *proposed* as pitch and yaw, both in
+        // degrees, based on a movdump capture that does not appear in any
+        // log currently on disk. The handoff doc (2026-09-24) cites them
+        // as confirmed; the only available diagnostic (diag.txt) contains
+        // zero `movdump` and zero `pan-probe` lines. The binary that
+        // produced it did not contain the diagnostic block.
+        //
+        // Until a real capture is on disk showing exactly one of
+        // {mov, root, cam} tracking the pan continuously across a probe-
+        // verified camera move, these offsets are unverified and the
+        // write path in Aimbot::tick() must remain disabled.
+        //
+        // The prior "confirmed" claim is indistinguishable, evidence-
+        // wise, from the 0x60/0x68 claim that crashed Unity. Treat it as
+        // such.
+        // -----------------------------------------------------------------
+        constexpr uint32_t CANDIDATE_VerticalRotation  = 0x70;
+        constexpr uint32_t CANDIDATE_HorRotationAngles = 0x74;
     }
 
     static const char* kMGetHealth        = "get_Health";
@@ -1417,6 +1459,11 @@ namespace RavenAimbot {
 #endif
 """)
 
+# ---------------------------------------------------------------------------
+# Src/Aimbot.mm — CHANGED. Write path disabled. Frozen-src detector added.
+# W2S bounds/NaN guard added. Stale-lock clear fixed. Dead statics marked
+# [[maybe_unused]]. movdump retained, gated at 10 Hz.
+# ---------------------------------------------------------------------------
 w("Src/Aimbot.mm", r"""
 #import "Aimbot.h"
 #import "GameData.h"
@@ -1439,11 +1486,15 @@ static void* g_getRenderCamera     = nullptr;
 static void* g_cameraClass         = nullptr;
 static void* g_worldToScreen       = nullptr;
 static void* g_getRootTransform    = nullptr;
-static void* g_setVerticalRotation = nullptr;
-static void* g_movementClass       = nullptr;
 static bool  g_resolved            = false;
 static void* g_lockedTarget        = nullptr;
 static double g_lockedSince        = 0.0;
+
+// Statics reserved for the setter-invocation fallback. Unused while the
+// write path is disabled. Marked [[maybe_unused]] so the warning is
+// handled at the declaration site instead of globally suppressed.
+[[maybe_unused]] static void* g_movementClass        = nullptr;
+[[maybe_unused]] static void* g_setVerticalRotation  = nullptr;
 
 // Same pointer sanity check as ESP.
 static inline bool ptrOk(void* p) {
@@ -1514,6 +1565,18 @@ static bool readTransformPos(void* t, Vec3* out) {
     return true;
 }
 
+// -----------------------------------------------------------------------
+// World-to-screen with bounds/NaN guard.
+//
+// The prior version returned YES unconditionally. If invokeMethod returned
+// a stale boxed Vector3 (see frozen-src detector below), the computed
+// screen point could be far outside the canvas and still pass. That fed
+// garbage into findBestTarget's FOV test.
+//
+// Mirrors the ESP version: reject anything more than 100pt outside the
+// canvas. Aim math allows the wider margin because a target slightly off-
+// screen should still be selectable if it's within the FOV circle.
+// -----------------------------------------------------------------------
 static bool worldToScreen(void* cam, Vec3 w, CGSize scr, CGPoint* out) {
     if (!cam) return false;
     ensureCameraClass(cam);
@@ -1524,35 +1587,63 @@ static bool worldToScreen(void* cam, Vec3 w, CGSize scr, CGPoint* out) {
     if (!r) return false;
     Vec3 sp = *(Vec3*)((uint8_t*)r + 0x10);
     if (sp.z < 0.01f) return false;
+    if (!(sp.x == sp.x) || !(sp.y == sp.y) || !(sp.z == sp.z)) return false; // NaN guard
+    if (fabsf(sp.x) > 1.0e6f || fabsf(sp.y) > 1.0e6f) return false;         // absurd-magnitude guard
     CGFloat scale = [UIScreen mainScreen].scale;
     if (scale <= 0.0) scale = 1.0;
     out->x = sp.x / scale;
     out->y = scr.height - (sp.y / scale);
-    return YES;
+    return (out->x >= -100 && out->x <= scr.width + 100 &&
+            out->y >= -100 && out->y <= scr.height + 100);
 }
 
-// -------------------------------------------------------------------
-// Dump helper — formats 24 consecutive floats as three log lines.
-// Used by the movdump block to compare the same memory window across
-// multiple candidate structs (PlayerMovement, PlayerRoot, camCtrl).
-// -------------------------------------------------------------------
-static void dumpFloats(const char* label, void* base, uint32_t lo, uint32_t hi) {
-    (void)hi; // window is fixed at 24 floats (3 × 8) to match prior format
-    if (!base) return;
-    uint8_t* b = (uint8_t*)base;
-    RAVEN_LOG("movdump %s 0x%02X: %.3f %.3f %.3f %.3f | %.3f %.3f %.3f %.3f",
-        label, lo,
-        *(float*)(b+lo+0x00), *(float*)(b+lo+0x04), *(float*)(b+lo+0x08), *(float*)(b+lo+0x0C),
-        *(float*)(b+lo+0x10), *(float*)(b+lo+0x14), *(float*)(b+lo+0x18), *(float*)(b+lo+0x1C));
-    RAVEN_LOG("movdump %s 0x%02X: %.3f %.3f %.3f %.3f | %.3f %.3f %.3f %.3f",
-        label, lo+0x20,
-        *(float*)(b+lo+0x20), *(float*)(b+lo+0x24), *(float*)(b+lo+0x28), *(float*)(b+lo+0x2C),
-        *(float*)(b+lo+0x30), *(float*)(b+lo+0x34), *(float*)(b+lo+0x38), *(float*)(b+lo+0x3C));
-    RAVEN_LOG("movdump %s 0x%02X: %.3f %.3f %.3f %.3f | %.3f %.3f %.3f %.3f",
-        label, lo+0x40,
-        *(float*)(b+lo+0x40), *(float*)(b+lo+0x44), *(float*)(b+lo+0x48), *(float*)(b+lo+0x4C),
-        *(float*)(b+lo+0x50), *(float*)(b+lo+0x54), *(float*)(b+lo+0x58), *(float*)(b+lo+0x5C));
-}
+// -----------------------------------------------------------------------
+// Frozen-src detector.
+//
+// diag.txt shows a 29-second window (23:57:55 .. 23:58:24) where the
+// local player's transform read back byte-identical, in lockstep with the
+// target transform, then jumped to a different coordinate space. The
+// signature is characteristic of a stale GC handle: IL2CPP's runtime-
+// invoke return slot stops being refreshed, the pointer stays valid
+// (readable memory) but the float it points at no longer updates.
+//
+// Once the counter exceeds a threshold, we log once and refuse to write
+// for the remainder of the current local-player lifetime. Any write
+// against a frozen read is a live-struct scribble, which is exactly the
+// failure mode that crashed the 0x60/0x68 build.
+// -----------------------------------------------------------------------
+struct FrozenDetector {
+    float lastX = 0.0f, lastY = 0.0f, lastZ = 0.0f;
+    int   identicalCount = 0;
+    bool  warned = false;
+    void* boundTo = nullptr;
+
+    void reset(void* local) {
+        lastX = lastY = lastZ = 0.0f;
+        identicalCount = 0;
+        warned = false;
+        boundTo = local;
+    }
+
+    bool observe(void* local, Vec3 v) {
+        if (local != boundTo) reset(local);
+        bool same = (v.x == lastX && v.y == lastY && v.z == lastZ);
+        lastX = v.x; lastY = v.y; lastZ = v.z;
+        if (same) {
+            if (identicalCount < 1000000) identicalCount++;
+        } else {
+            identicalCount = 0;
+        }
+        // 60 ticks at 30 Hz = 2 seconds of byte-identical transform.
+        if (identicalCount >= 60 && !warned) {
+            warned = true;
+            RAVEN_LOG("aim-frozen: local transform identical for %d ticks "
+                      "src=(%.3f,%.3f,%.3f) — refusing writes this life",
+                      identicalCount, v.x, v.y, v.z);
+        }
+        return !warned;
+    }
+};
 
 static void* findBestTarget(void* localPlayer, int localTeam, void* camera,
                             Vec3* outAimPoint)
@@ -1568,6 +1659,24 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera,
     CGSize scr = [UIScreen mainScreen].bounds.size;
     CGPoint center = CGPointMake(scr.width / 2.0, scr.height / 2.0);
     float fovPx = (RavenSettings::aimFov / 90.0f) * (scr.width / 2.0f);
+
+    // ---- stale-lock clear ----
+    // Previous version only cleared the lock when best==nullptr. If the
+    // locked target's object pointer was recycled and its W2S now fails,
+    // but some other valid target exists, the lock never cleared and
+    // g_lockedSince never reset. That produced the 30-second frozen
+    // aim-dbg lines in diag.txt.
+    if (g_lockedTarget) {
+        bool stillPresent = false;
+        for (int i = 0; i < count; i++) {
+            if (items[i] == g_lockedTarget) { stillPresent = true; break; }
+        }
+        if (!stillPresent) {
+            RAVEN_LOG("aim-lock: released stale target %p", g_lockedTarget);
+            g_lockedTarget = nullptr;
+            g_lockedSince = 0.0;
+        }
+    }
 
     void* best = nullptr;
     float bestDist = FLT_MAX;
@@ -1652,11 +1761,26 @@ void setEnabled(bool on) {
 }
 
 // ============================================================
-// ACTIVE AIMBOT — offsets confirmed by movdump capture
+// READ-ONLY OBSERVER MODE
 // ============================================================
-// Pitch: PlayerMovement + 0x70 (float, degrees)
-// Yaw:   PlayerMovement + 0x74 (float, degrees)
-// The old 0x60 / 0x68 targets were wrong; do not use them.
+// The write path is DISABLED. There is no valid movdump capture on
+// disk to justify enabling it, and the previous "confirmed" 0x70/0x74
+// claim has the same evidentiary status as the 0x60/0x68 claim that
+// crashed Unity in UnityRepaint with EXC_BAD_ACCESS.
+//
+// Do not set kWriteEnabled=true until:
+//   (1) A fresh diag log contains `movdump mov/root/cam` and
+//       `pan-probe` lines spanning a real camera pan.
+//   (2) Exactly one struct's block tracks the pan continuously.
+//   (3) The tracking floats sit in [-90, +90] (pitch) and [-180, +180]
+//       (yaw, wraps at ±180).
+//   (4) The frozen-src detector has not fired for the capture window.
+//
+// movdump protocol (this build): window arms on local player change,
+// runs for 8 seconds, dumps 24 consecutive floats (0x30..0x8C) from
+// mov/root/cam. pan-probe logs the screen position of a fixed world
+// point each tick — if it doesn't move, the camera did not pan and
+// the capture is invalid.
 // ============================================================
 
 void tick() {
@@ -1683,26 +1807,82 @@ void tick() {
         camera = invokePtr(g_getMainCamera, localPlayer);
     if (!ptrOk(camera)) return;
 
-    // -----------------------------------------------------------------
-    // Read the movement pointer. This is the struct that holds rotation.
-    // -----------------------------------------------------------------
     void* movement = readPtr(localPlayer, GameData::PlayerRoot::PlayerMovement);
-    if (!ptrOk(movement)) {
+    bool movementOk = ptrOk(movement);
+    if (!movementOk) {
         RAVEN_LOG("aim: movement pointer out of range: %p", movement);
-        return;
     }
 
-    // ---- target acquisition and aim math ----
-    Vec3 aimPoint = {0,0,0};
-    void* target = findBestTarget(localPlayer, localTeam, camera, &aimPoint);
-    if (!target) return;
+    // ---- movdump ----
+    static double g_dumpUntil   = 0.0;
+    static void*  g_dumpLocal   = nullptr;
+    static Vec3   g_dumpProbe   = {0,0,0};
+    static bool   g_dumpProbeOk = false;
+    static double g_dumpLastLog = 0.0;
 
+    if (localPlayer != g_dumpLocal) {
+        g_dumpLocal   = localPlayer;
+        g_dumpUntil   = CACurrentMediaTime() + 8.0;
+        g_dumpProbeOk = false;
+        g_dumpLastLog = 0.0;
+    }
+
+    if (CACurrentMediaTime() < g_dumpUntil) {
+        // 10 Hz log rate to avoid os_log throttling. Prior build logged at
+        // 30 Hz and produced ~2,400 lines per window; those were absent
+        // from diag.txt, meaning the binary that produced diag.txt did not
+        // contain this block. If a fresh capture is also silent, the build
+        // configuration is wrong, not the recon.
+        double now = CACurrentMediaTime();
+        if (now - g_dumpLastLog >= 0.1) {
+            g_dumpLastLog = now;
+
+            if (!g_dumpProbeOk) {
+                void* lt = g_getRootTransform ? invokePtr(g_getRootTransform, localPlayer) : nullptr;
+                if (ptrOk(lt) && readTransformPos(lt, &g_dumpProbe)) {
+                    g_dumpProbeOk = true;
+                }
+            }
+
+            if (movementOk) {
+                uint8_t* b = (uint8_t*)movement;
+                RAVEN_LOG("movdump mov 0x30: %.3f %.3f %.3f %.3f | %.3f %.3f %.3f %.3f",
+                    *(float*)(b+0x30), *(float*)(b+0x34), *(float*)(b+0x38), *(float*)(b+0x3C),
+                    *(float*)(b+0x40), *(float*)(b+0x44), *(float*)(b+0x48), *(float*)(b+0x4C));
+                RAVEN_LOG("movdump mov 0x50: %.3f %.3f %.3f %.3f | %.3f %.3f %.3f %.3f",
+                    *(float*)(b+0x50), *(float*)(b+0x54), *(float*)(b+0x58), *(float*)(b+0x5C),
+                    *(float*)(b+0x60), *(float*)(b+0x64), *(float*)(b+0x68), *(float*)(b+0x6C));
+                RAVEN_LOG("movdump mov 0x70: %.3f %.3f %.3f %.3f | %.3f %.3f %.3f %.3f",
+                    *(float*)(b+0x70), *(float*)(b+0x74), *(float*)(b+0x78), *(float*)(b+0x7C),
+                    *(float*)(b+0x80), *(float*)(b+0x84), *(float*)(b+0x88), *(float*)(b+0x8C));
+            }
+
+            if (g_dumpProbeOk) {
+                CGPoint probe;
+                if (worldToScreen(camera, g_dumpProbe, [UIScreen mainScreen].bounds.size, &probe)) {
+                    RAVEN_LOG("pan-probe: (%.1f, %.1f)", probe.x, probe.y);
+                } else {
+                    RAVEN_LOG("pan-probe: offscreen");
+                }
+            }
+        }
+    }
+
+    // ---- local transform read + frozen detection ----
     void* localT = g_getRootTransform ? invokePtr(g_getRootTransform, localPlayer) : nullptr;
     if (!ptrOk(localT)) return;
 
     Vec3 src = {0,0,0};
     if (!readTransformPos(localT, &src)) return;
+
+    static FrozenDetector s_frozen;
+    bool srcLive = s_frozen.observe(localPlayer, src);
     src.y += 1.65f;
+
+    // ---- target acquisition and aim math ----
+    Vec3 aimPoint = {0,0,0};
+    void* target = findBestTarget(localPlayer, localTeam, camera, &aimPoint);
+    if (!target) return;
 
     Vec3 dir = { aimPoint.x - src.x, aimPoint.y - src.y, aimPoint.z - src.z };
     float horiz = sqrtf(dir.x*dir.x + dir.z*dir.z);
@@ -1712,26 +1892,30 @@ void tick() {
     float wantPitch = -atan2f(dir.y, horiz) * 180.0f / (float)M_PI;
     wantPitch = MAX(-89.0f, MIN(89.0f, wantPitch));
 
-    RAVEN_LOG("aim-dbg: wantPitch=%.2f wantYaw=%.2f src=(%.1f,%.1f,%.1f) aim=(%.1f,%.1f,%.1f)",
-              wantPitch, wantYaw, src.x, src.y, src.z, aimPoint.x, aimPoint.y, aimPoint.z);
+    RAVEN_LOG("aim-dbg: wantPitch=%.2f wantYaw=%.2f src=(%.1f,%.1f,%.1f) aim=(%.1f,%.1f,%.1f) live=%d",
+              wantPitch, wantYaw, src.x, src.y, src.z, aimPoint.x, aimPoint.y, aimPoint.z, srcLive ? 1 : 0);
 
-    // ---- WRITE PATH ----
-    float* pitchField = (float*)((uint8_t*)movement + GameData::PlayerMovement::VerticalRotation);
-    float* yawField   = (float*)((uint8_t*)movement + GameData::PlayerMovement::HorRotationAngles);
+    // ---- WRITE PATH: disabled ----
+    // Do not flip this to true until a real movdump capture identifies
+    // the rotation fields. The two candidate offsets in GameData.h
+    // (0x70, 0x74) have no supporting evidence on disk.
+    const bool kWriteEnabled = false;
+    if (!kWriteEnabled) return;
+    if (!srcLive) return;       // frozen read → refuse to write
+    if (!movementOk) return;    // unverified movement pointer → refuse to write
 
-    float curPitch = *pitchField;
-    float curYaw   = *yawField;
-
-    float dYaw = wantYaw - curYaw;
-    while (dYaw >  180.0f) dYaw -= 360.0f;
-    while (dYaw < -180.0f) dYaw += 360.0f;
-
-    float smooth = MAX(1.0f, RavenSettings::aimSmooth);
-    float nextPitch = curPitch + (wantPitch - curPitch) / smooth;
-    float nextYaw   = curYaw   + dYaw / smooth;
-
-    *pitchField = nextPitch;
-    *yawField   = nextYaw;
+    // When enabling, replace the placeholder offsets with the ones the
+    // movdump confirms, and prefer resolving the game's own setter via
+    // IL2CPP over raw pointer writes:
+    //
+    //   g_movementClass       = IL2CPP::objectGetClass(movement);
+    //   g_setVerticalRotation = IL2CPP::resolveMethod(g_movementClass, "set_VerticalRotation", 1);
+    //   if (g_setVerticalRotation) {
+    //       void* args[1] = { &nextPitch };
+    //       IL2CPP::invokeMethod(g_setVerticalRotation, movement, args);
+    //   }
+    //
+    // Raw byte writes are the fallback, not the primary.
 }
 
 }
@@ -3265,4 +3449,9 @@ static void forceLandscape(void) {
 @end
 """)
 
-print("done - aimbot write path enabled with confirmed offsets 0x70/0x74")
+print("done — correction pass complete")
+print("Makefile: -Wno-unused-variable removed")
+print("GameData.h: 0x70/0x74 demoted to CANDIDATE_*, 0x60/0x68/0x78 marked DEAD_*")
+print("Aimbot.mm: write path disabled, frozen-src detector added,")
+print("           W2S bounds/NaN guard added, stale-lock clear fixed,")
+print("           dead statics marked [[maybe_unused]], movdump gated at 10 Hz")
