@@ -1834,6 +1834,10 @@ static void resolveHandles(void) {
         g_gyroGravity        = IL2CPP::resolveMethod(g_gyroClass, "get_gravity", 0);
     }
     g_gyroResolved = (g_getGyro && g_gyroClass);
+    RAVEN_LOG("gyro-resolve: inputClass=%p gyroClass=%p getGyro=%p enabled=%p interval=%p attitude=%p rate=%p gravity=%p ready=%d",
+              g_inputClass, g_gyroClass, g_getGyro, g_gyroEnabled,
+              g_gyroUpdateInterval, g_gyroAttitude, g_gyroRotationRate,
+              g_gyroGravity, g_gyroResolved);
     g_resolved = (g_playerRootClass && g_cameraCtrlClass && g_getTeamId &&
                   g_getActiveMobView && g_getRenderCamera);
 }
