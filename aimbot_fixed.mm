@@ -1,3 +1,4 @@
+// Root cause fix
 #import "Aimbot.h"
 #import "GameData.h"
 #import "IL2CPP.h"
@@ -29,12 +30,39 @@ static void* g_displayRotationClass = nullptr;
 static void* g_rotationDelta        = nullptr;
 static void* g_updateRotationDelta  = nullptr;
 static bool  g_resolved            = false;
-static void* g_lockedTarget        = nullptr;
-static double g_lockedSince        = 0.0;
+
+// ---- lock state -------------------------------------------------
+static void*  g_lockedTarget      = nullptr;
+static double g_lockedSince       = 0.0;
+static int    g_lockTicks         = 0;
+static float  g_lockedScreenD     = FLT_MAX;
+
+// ---- write bounds ----------------------------------------------
+// The game's pitch field (+0x3C) is legal only on ±90. Once an
+// unnormalized write pushes it past 90 in a single frame, the game
+// clamps to 90, dumps the residual into yaw, and the next frame
+// shows a 500+ value on read. That is the observed snap-up
+// (gyro pitch 585.3184 -> camera clamps to +90 -> yaw jumps to
+// 90.000 / -119.959 in the same tick). We never let a write cross.
+static const float AIM_PITCH_MIN      = -89.0f;
+static const float AIM_PITCH_MAX      =  89.0f;
+static const float AIM_MAX_YAW_STEP   =   8.0f;   // deg / tick
+static const float AIM_MAX_PITCH_STEP =   6.0f;   // deg / tick
+static const int   AIM_LOCK_MIN_TICKS =  10;
+static const float AIM_SWITCH_HYST_PX =  60.0f;
 
 static inline bool ptrOk(void* p) {
     uintptr_t v = (uintptr_t)p;
     return v >= 0x100000000ULL && v <= 0x8000000000ULL;
+}
+
+static inline float wrap180f(float d) {
+    d = fmodf(d + 180.0f, 360.0f);
+    if (d < 0.0f) d += 360.0f;
+    return d - 180.0f;
+}
+static inline float clampf(float v, float lo, float hi) {
+    return v < lo ? lo : (v > hi ? hi : v);
 }
 
 static void* resolveInherited(void* cls, const char* name, int argc) {
@@ -72,7 +100,7 @@ static void resolveHandles(void) {
         g_rotationDelta       = IL2CPP::resolveMethod(g_displayRotationClass, "get_DegreesDelta", 0);
         g_updateRotationDelta = IL2CPP::resolveMethod(g_displayRotationClass, "get_UpdateDegreesDelta", 0);
 
-        // --- method enumeration probe (temporary diagnostic) ---
+        // --- method enumeration probe (kept for next diag pass) ---
         typedef void* (*t_iter)(void*, void**);
         typedef const char* (*t_mname)(void*);
         typedef uint32_t (*t_pcount)(void*);
@@ -196,6 +224,17 @@ struct FrozenDetector {
     }
 };
 
+// ---------------------------------------------------------------
+//  findBestTarget
+//    Lock hold is hard-bound: once a target is chosen it stays
+//    locked for at least AIM_LOCK_MIN_TICKS frames. Switching
+//    additionally requires the new candidate to be AIM_SWITCH_HYST_PX
+//    closer to the crosshair than the current lock.
+//
+//    Existing aimSwitchDelay still applies on top — if the caller
+//    sets a delay, that is enforced; this adds a floor beneath it so
+//    aimSwitchDelay=0 no longer means "switch every frame".
+// ---------------------------------------------------------------
 static void* findBestTarget(void* localPlayer, int localTeam, void* camera, Vec3* outAimPoint) {
     void* list = IL2CPP::readStaticFieldObject(g_playerRootClass, GameData::kFldAllPlayers);
     if (!ptrOk(list)) return nullptr;
@@ -217,6 +256,8 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera, Vec3
         if (!stillPresent) {
             g_lockedTarget = nullptr;
             g_lockedSince = 0.0;
+            g_lockTicks = 0;
+            g_lockedScreenD = FLT_MAX;
         }
     }
 
@@ -263,32 +304,67 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera, Vec3
 
         float d = hypotf(screen.x - center.x, screen.y - center.y);
         if (d > fovPx) continue;
-        if (p == g_lockedTarget) { lockedAim = bonePos; lockedVisible = true; }
+        if (p == g_lockedTarget) { lockedAim = bonePos; lockedVisible = true; g_lockedScreenD = d; }
         if (d < bestDist) { bestDist = d; best = p; bestAim = bonePos; }
     }
 
     double now = CACurrentMediaTime();
     double switchDelay = MAX(0.0, (double)RavenSettings::aimSwitchDelay) / 1000.0;
+
+    // Honor caller-configured delay first (locked + visible + within delay -> hold)
     if (g_lockedTarget && lockedVisible && switchDelay > 0.0 &&
         (now - g_lockedSince) < switchDelay) {
         *outAimPoint = lockedAim;
+        g_lockTicks++;
         return g_lockedTarget;
     }
+
+    // Hard floor: lock held for at least AIM_LOCK_MIN_TICKS frames
+    if (g_lockedTarget && lockedVisible && g_lockTicks < AIM_LOCK_MIN_TICKS) {
+        *outAimPoint = lockedAim;
+        g_lockTicks++;
+        return g_lockedTarget;
+    }
+
     if (best) {
-        if (best != g_lockedTarget) {
-            g_lockedTarget = best;
-            g_lockedSince = now;
+        if (best == g_lockedTarget) {
+            g_lockedScreenD = bestDist;
+            g_lockTicks++;
+        } else {
+            // switching — require margin if we already had a lock
+            bool canSwitch = (g_lockedTarget == nullptr)
+                           || (bestDist + AIM_SWITCH_HYST_PX < g_lockedScreenD);
+            if (canSwitch) {
+                g_lockedTarget  = best;
+                g_lockedSince   = now;
+                g_lockTicks     = 0;
+                g_lockedScreenD = bestDist;
+            } else {
+                // keep current lock, still aim at it
+                if (lockedVisible) {
+                    *outAimPoint = lockedAim;
+                    g_lockTicks++;
+                    return g_lockedTarget;
+                }
+            }
         }
         *outAimPoint = bestAim;
     } else if (!lockedVisible) {
         g_lockedTarget = nullptr;
+        g_lockTicks = 0;
+        g_lockedScreenD = FLT_MAX;
     }
     return best;
 }
 
 void setEnabled(bool on) {
     RavenSettings::aimEnabled = on;
-    if (!on) { g_lockedTarget = nullptr; g_lockedSince = 0.0; }
+    if (!on) {
+        g_lockedTarget = nullptr;
+        g_lockedSince = 0.0;
+        g_lockTicks = 0;
+        g_lockedScreenD = FLT_MAX;
+    }
 }
 
 void tick() {
@@ -363,18 +439,26 @@ void tick() {
     d_yaw   *= (1.0f / smooth);
     d_pitch *= (1.0f / smooth);
 
-    float maxDeg = 20.0f;
-    d_yaw   = MAX(-maxDeg, MIN(maxDeg, d_yaw));
-    d_pitch = MAX(-maxDeg, MIN(maxDeg, d_pitch));
+    // Per-tick step clamp. Small enough that even an unnormalized
+    // input can't jump the game's clamp in one frame.
+    d_yaw   = clampf(d_yaw,   -AIM_MAX_YAW_STEP,   AIM_MAX_YAW_STEP);
+    d_pitch = clampf(d_pitch, -AIM_MAX_PITCH_STEP, AIM_MAX_PITCH_STEP);
 
     // ---- Write delta to sensor field ----
     //
-    // Delta the camera consumes lives at sensor+0x38 (confirmed against
-    // get_DegreesDelta()). Prior versions wrote to +0x28 (scratch) or
-    // mirrored to +0x40 (unrelated pipeline — caused snap-up). Both removed.
+    //   +0x38  yaw   (deg)   legal range wraps at ±180
+    //   +0x3C  pitch (deg)   legal range ±90  (game clamps at ±90)
     //
-    // We add onto whatever is already there so we blend with touch input
-    // rather than replace it.
+    // Snap-up root cause: prior code did `*(p+0x3C) = pre38p + d_pitch`
+    // reading pre38p raw. If the game had already left a >90 value
+    // there from a previous unnormalized write (or from a sensor spike),
+    // we compounded it. Next frame the game read 585, clamped to 90,
+    // dumped the residual into yaw, and the camera snapped.
+    //
+    // Fix: normalize whatever the game left behind INTO the legal
+    // range BEFORE we use it as a base. Then step-clamp, add, and
+    // re-normalize on write. The value we leave behind is always
+    // inside ±180 yaw / ±89 pitch no matter what came in.
     void* inputController = readPtr(localPlayer, 0xE8);
     void* rotationSensor = ptrOk(inputController) ? readPtr(inputController, 0x168) : nullptr;
 
@@ -382,15 +466,28 @@ void tick() {
     float pre38y = 0, pre38p = 0, post38y = 0, post38p = 0;
     if (ptrOk(rotationSensor)) {
         uint8_t* p = (uint8_t*)rotationSensor;
-        pre38y = *(float*)(p + 0x38);
-        pre38p = *(float*)(p + 0x3C);
-        if (isfinite(pre38y) && isfinite(pre38p) &&
-            fabsf(pre38y) < 720.f && fabsf(pre38p) < 720.f) {
-            *(float*)(p + 0x38) = pre38y + d_yaw;
-            *(float*)(p + 0x3C) = pre38p + d_pitch;
-            post38y = *(float*)(p + 0x38);
-            post38p = *(float*)(p + 0x3C);
-            applied = true;
+        float rawY = *(float*)(p + 0x38);
+        float rawP = *(float*)(p + 0x3C);
+        pre38y = rawY;
+        pre38p = rawP;
+
+        if (isfinite(rawY) && isfinite(rawP)) {
+            // 1. normalize incoming values into legal range
+            float baseY = wrap180f(rawY);
+            float baseP = clampf(rawP, AIM_PITCH_MIN, AIM_PITCH_MAX);
+
+            // 2. apply the already step-clamped delta
+            float newY = wrap180f(baseY + d_yaw);
+            float newP = clampf(baseP + d_pitch, AIM_PITCH_MIN, AIM_PITCH_MAX);
+
+            // 3. re-verify before committing
+            if (isfinite(newY) && isfinite(newP)) {
+                *(float*)(p + 0x38) = newY;
+                *(float*)(p + 0x3C) = newP;
+                post38y = newY;
+                post38p = newP;
+                applied = true;
+            }
         }
     }
 
