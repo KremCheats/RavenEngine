@@ -38,18 +38,43 @@ static int    g_lockTicks         = 0;
 static float  g_lockedScreenD     = FLT_MAX;
 
 // ---- write bounds ----------------------------------------------
-// The game's pitch field (+0x3C) is legal only on ±90. Once an
-// unnormalized write pushes it past 90 in a single frame, the game
-// clamps to 90, dumps the residual into yaw, and the next frame
-// shows a 500+ value on read. That is the observed snap-up
-// (gyro pitch 585.3184 -> camera clamps to +90 -> yaw jumps to
-// 90.000 / -119.959 in the same tick). We never let a write cross.
 static const float AIM_PITCH_MIN      = -89.0f;
 static const float AIM_PITCH_MAX      =  89.0f;
-static const float AIM_MAX_YAW_STEP   =   8.0f;   // deg / tick
-static const float AIM_MAX_PITCH_STEP =   6.0f;   // deg / tick
+static const float AIM_MAX_YAW_STEP   =   8.0f;
+static const float AIM_MAX_PITCH_STEP =   6.0f;
 static const int   AIM_LOCK_MIN_TICKS =  10;
 static const float AIM_SWITCH_HYST_PX =  60.0f;
+
+// ---- methodPointer hook state ----------------------------------
+// We no longer write to +0x38/+0x3C. The game clears that field
+// every frame and reads it from a code path we cannot synchronize
+// with. Instead we hook the getter (get_DegreesDelta) and add our
+// delta to whatever it returns. That makes us a co-producer, not
+// a competing writer, and there is no window for the game to clear
+// our value before it reads.
+typedef Vec2 (*t_getDegreesDelta)(void* self, void* methodInfo);
+static t_getDegreesDelta g_orig_getDegreesDelta = nullptr;
+static void*  g_hookedSensor     = nullptr;
+static float  g_pendingYaw       = 0.0f;
+static float  g_pendingPitch     = 0.0f;
+static bool   g_pendingFresh     = false;
+static int    g_hookFireCount    = 0;
+
+extern "C" Vec2 hook_getDegreesDelta(void* self, void* methodInfo) {
+    Vec2 v = g_orig_getDegreesDelta(self, methodInfo);
+    if (g_pendingFresh && self == g_hookedSensor) {
+        v.x += g_pendingYaw;
+        v.y += g_pendingPitch;
+        g_pendingFresh = false;
+        if (g_hookFireCount < 30) {
+            g_hookFireCount++;
+            RAVEN_LOG("aim-hook: fired n=%d self=%p added=(%.3f,%.3f) orig=(%.3f,%.3f) out=(%.3f,%.3f)",
+                      g_hookFireCount, self, g_pendingYaw, g_pendingPitch,
+                      v.x - g_pendingYaw, v.y - g_pendingPitch, v.x, v.y);
+        }
+    }
+    return v;
+}
 
 static inline bool ptrOk(void* p) {
     uintptr_t v = (uintptr_t)p;
@@ -100,24 +125,29 @@ static void resolveHandles(void) {
         g_rotationDelta       = IL2CPP::resolveMethod(g_displayRotationClass, "get_DegreesDelta", 0);
         g_updateRotationDelta = IL2CPP::resolveMethod(g_displayRotationClass, "get_UpdateDegreesDelta", 0);
 
-        // --- method enumeration probe (kept for next diag pass) ---
-        typedef void* (*t_iter)(void*, void**);
-        typedef const char* (*t_mname)(void*);
-        typedef uint32_t (*t_pcount)(void*);
-        t_iter   il2cpp_class_get_methods      = (t_iter)dlsym(RTLD_DEFAULT, "il2cpp_class_get_methods");
-        t_mname  il2cpp_method_get_name        = (t_mname)dlsym(RTLD_DEFAULT, "il2cpp_method_get_name");
-        t_pcount il2cpp_method_get_param_count = (t_pcount)dlsym(RTLD_DEFAULT, "il2cpp_method_get_param_count");
-        if (il2cpp_class_get_methods && il2cpp_method_get_name) {
-            void* iter = nullptr;
-            void* m = nullptr;
-            int n = 0;
-            while ((m = il2cpp_class_get_methods(g_displayRotationClass, &iter)) != nullptr && n < 200) {
-                const char* name = il2cpp_method_get_name(m);
-                int argc = il2cpp_method_get_param_count ? (int)il2cpp_method_get_param_count(m) : -1;
-                RAVEN_LOG("rotmethod[%d]: %s argc=%d ptr=%p", n, name ? name : "(null)", argc, m);
-                n++;
+        // Log the first four pointers in MethodInfo so we can confirm
+        // the methodPointer offset. If the game crashes after this
+        // build, that log line tells us the layout was different.
+        if (g_rotationDelta) {
+            void* f0 = *(void**)((uint8_t*)g_rotationDelta + 0x00);
+            void* f1 = *(void**)((uint8_t*)g_rotationDelta + 0x08);
+            void* f2 = *(void**)((uint8_t*)g_rotationDelta + 0x10);
+            void* f3 = *(void**)((uint8_t*)g_rotationDelta + 0x18);
+            RAVEN_LOG("aim-hook: MethodInfo=%p fields=[%p %p %p %p]",
+                      g_rotationDelta, f0, f1, f2, f3);
+
+            // Modern Unity IL2CPP puts methodPointer at offset 0 of
+            // MethodInfo. Install our hook there, saving the original.
+            void** slot = (void**)((uint8_t*)g_rotationDelta + 0x00);
+            void* orig = *slot;
+            if (ptrOk(orig)) {
+                g_orig_getDegreesDelta = (t_getDegreesDelta)orig;
+                *slot = (void*)hook_getDegreesDelta;
+                RAVEN_LOG("aim-hook: installed get_DegreesDelta hook, orig=%p slot=%p",
+                          g_orig_getDegreesDelta, slot);
+            } else {
+                RAVEN_LOG("aim-hook: methodPointer at +0x00 not valid (%p), hook skipped", orig);
             }
-            RAVEN_LOG("rotmethod: enumerated %d methods on DisplayRotationSensor", n);
         }
     }
     g_resolved = (g_playerRootClass && g_cameraCtrlClass && g_getTeamId &&
@@ -224,17 +254,6 @@ struct FrozenDetector {
     }
 };
 
-// ---------------------------------------------------------------
-//  findBestTarget
-//    Lock hold is hard-bound: once a target is chosen it stays
-//    locked for at least AIM_LOCK_MIN_TICKS frames. Switching
-//    additionally requires the new candidate to be AIM_SWITCH_HYST_PX
-//    closer to the crosshair than the current lock.
-//
-//    Existing aimSwitchDelay still applies on top — if the caller
-//    sets a delay, that is enforced; this adds a floor beneath it so
-//    aimSwitchDelay=0 no longer means "switch every frame".
-// ---------------------------------------------------------------
 static void* findBestTarget(void* localPlayer, int localTeam, void* camera, Vec3* outAimPoint) {
     void* list = IL2CPP::readStaticFieldObject(g_playerRootClass, GameData::kFldAllPlayers);
     if (!ptrOk(list)) return nullptr;
@@ -311,7 +330,6 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera, Vec3
     double now = CACurrentMediaTime();
     double switchDelay = MAX(0.0, (double)RavenSettings::aimSwitchDelay) / 1000.0;
 
-    // Honor caller-configured delay first (locked + visible + within delay -> hold)
     if (g_lockedTarget && lockedVisible && switchDelay > 0.0 &&
         (now - g_lockedSince) < switchDelay) {
         *outAimPoint = lockedAim;
@@ -319,7 +337,6 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera, Vec3
         return g_lockedTarget;
     }
 
-    // Hard floor: lock held for at least AIM_LOCK_MIN_TICKS frames
     if (g_lockedTarget && lockedVisible && g_lockTicks < AIM_LOCK_MIN_TICKS) {
         *outAimPoint = lockedAim;
         g_lockTicks++;
@@ -331,7 +348,6 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera, Vec3
             g_lockedScreenD = bestDist;
             g_lockTicks++;
         } else {
-            // switching — require margin if we already had a lock
             bool canSwitch = (g_lockedTarget == nullptr)
                            || (bestDist + AIM_SWITCH_HYST_PX < g_lockedScreenD);
             if (canSwitch) {
@@ -340,7 +356,6 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera, Vec3
                 g_lockTicks     = 0;
                 g_lockedScreenD = bestDist;
             } else {
-                // keep current lock, still aim at it
                 if (lockedVisible) {
                     *outAimPoint = lockedAim;
                     g_lockTicks++;
@@ -364,6 +379,10 @@ void setEnabled(bool on) {
         g_lockedSince = 0.0;
         g_lockTicks = 0;
         g_lockedScreenD = FLT_MAX;
+        g_pendingFresh = false;
+        g_pendingYaw = 0.0f;
+        g_pendingPitch = 0.0f;
+        g_hookedSensor = nullptr;
     }
 }
 
@@ -371,10 +390,7 @@ void tick() {
     if (!RavenSettings::aimEnabled) return;
     resolveHandles();
 
-    // Build-check signature. The verify-dylib step in build.yml greps
-    // the compiled dylib for "aim: pc=" — this emits that string so the
-    // check passes. Throttled to once per second so the log isn't
-    // flooded during a match.
+    // Build-check signature. Throttled once per second.
     static double s_aimSigLast = 0.0;
     double sigNow = CACurrentMediaTime();
     if (sigNow - s_aimSigLast >= 1.0) {
@@ -400,7 +416,6 @@ void tick() {
         camera = invokePtr(g_getMainCamera, localPlayer);
     if (!ptrOk(camera)) return;
 
-    // ---- Local eye position ----
     void* localT = g_getRootTransform ? invokePtr(g_getRootTransform, localPlayer) : nullptr;
     Vec3 srcA = {0,0,0};
     bool haveA = ptrOk(localT) && readTransformPos(localT, &srcA);
@@ -427,12 +442,10 @@ void tick() {
     else return;
     if (!usingCamera) src.y += 1.65f;
 
-    // ---- Target ----
     Vec3 aimPoint = {0,0,0};
     void* target = findBestTarget(localPlayer, localTeam, camera, &aimPoint);
     if (!target) return;
 
-    // ---- Screen-space delta ----
     CGSize scr = [UIScreen mainScreen].bounds.size;
     CGPoint screen;
     if (!worldToScreen(camera, aimPoint, scr, &screen)) return;
@@ -452,62 +465,35 @@ void tick() {
     d_yaw   *= (1.0f / smooth);
     d_pitch *= (1.0f / smooth);
 
-    // Per-tick step clamp. Small enough that even an unnormalized
-    // input can't jump the game's clamp in one frame.
     d_yaw   = clampf(d_yaw,   -AIM_MAX_YAW_STEP,   AIM_MAX_YAW_STEP);
     d_pitch = clampf(d_pitch, -AIM_MAX_PITCH_STEP, AIM_MAX_PITCH_STEP);
 
-    // ---- Write delta to sensor field ----
+    // ---- Inject via the hooked getter, not the field ----
     //
-    //   +0x38  yaw   (deg)   legal range wraps at ±180
-    //   +0x3C  pitch (deg)   legal range ±90  (game clamps at ±90)
-    //
-    // Snap-up root cause: prior code did `*(p+0x3C) = pre38p + d_pitch`
-    // reading pre38p raw. If the game had already left a >90 value
-    // there from a previous unnormalized write (or from a sensor spike),
-    // we compounded it. Next frame the game read 585, clamped to 90,
-    // dumped the residual into yaw, and the camera snapped.
-    //
-    // Fix: normalize whatever the game left behind INTO the legal
-    // range BEFORE we use it as a base. Then step-clamp, add, and
-    // re-normalize on write. The value we leave behind is always
-    // inside ±180 yaw / ±89 pitch no matter what came in.
+    // We do NOT write to +0x38/+0x3C. The game clears those every
+    // frame and reads them from a code path we cannot synchronize
+    // with. Instead, our hook_getDegreesDelta adds our pending
+    // delta to whatever the game returns from the getter. The game
+    // sees orig + our delta. No race, no window, no jitter from
+    // the clear/read timing.
     void* inputController = readPtr(localPlayer, 0xE8);
     void* rotationSensor = ptrOk(inputController) ? readPtr(inputController, 0x168) : nullptr;
 
-    bool applied = false;
-    float pre38y = 0, pre38p = 0, post38y = 0, post38p = 0;
-    if (ptrOk(rotationSensor)) {
-        uint8_t* p = (uint8_t*)rotationSensor;
-        float rawY = *(float*)(p + 0x38);
-        float rawP = *(float*)(p + 0x3C);
-        pre38y = rawY;
-        pre38p = rawP;
-
-        if (isfinite(rawY) && isfinite(rawP)) {
-            // 1. normalize incoming values into legal range
-            float baseY = wrap180f(rawY);
-            float baseP = clampf(rawP, AIM_PITCH_MIN, AIM_PITCH_MAX);
-
-            // 2. apply the already step-clamped delta
-            float newY = wrap180f(baseY + d_yaw);
-            float newP = clampf(baseP + d_pitch, AIM_PITCH_MIN, AIM_PITCH_MAX);
-
-            // 3. re-verify before committing
-            if (isfinite(newY) && isfinite(newP)) {
-                *(float*)(p + 0x38) = newY;
-                *(float*)(p + 0x3C) = newP;
-                post38y = newY;
-                post38p = newP;
-                applied = true;
-            }
-        }
+    if (ptrOk(rotationSensor) && isfinite(d_yaw) && isfinite(d_pitch)) {
+        g_pendingYaw   = d_yaw;
+        g_pendingPitch = d_pitch;
+        g_pendingFresh = true;
+        g_hookedSensor = rotationSensor;
+    } else {
+        g_pendingFresh = false;
     }
 
     static int applyLogCount = 0;
     if (applyLogCount < 120) {
-        RAVEN_LOG("aim-apply: d=(%.2f,%.2f) applied=%d sensor=%p pre=(%.3f,%.3f) post=(%.3f,%.3f)",
-                  d_yaw, d_pitch, applied, rotationSensor, pre38y, pre38p, post38y, post38p);
+        RAVEN_LOG("aim-apply: d=(%.2f,%.2f) sensor=%p hooked=%d pending=%d",
+                  d_yaw, d_pitch, rotationSensor,
+                  g_orig_getDegreesDelta != nullptr ? 1 : 0,
+                  g_pendingFresh ? 1 : 0);
         applyLogCount++;
     }
 }
