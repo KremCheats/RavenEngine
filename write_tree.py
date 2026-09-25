@@ -1181,6 +1181,7 @@ static void*  g_getIsDowned = nullptr;
 static void*  g_transformClass = nullptr;
 static void*  g_cameraClass = nullptr;
 static bool   g_worldToScreenTwoArg = false;
+static bool   g_worldToViewport = false;
 
 static void*  g_playerTransformGetter = nullptr;
 static bool   g_resolved = false;
@@ -1261,7 +1262,10 @@ static void ensureCameraHandles(void* cameraObj) {
     if (!g_cameraClass)
         g_cameraClass = IL2CPP::klass("UnityEngine", "Camera");
     if (g_cameraClass) {
-        g_worldToScreen = IL2CPP::resolveMethod(g_cameraClass, GameData::kMWorldToScreen, 1);
+        g_worldToScreen = IL2CPP::resolveMethod(g_cameraClass, "WorldToViewportPoint", 1);
+        g_worldToViewport = (g_worldToScreen != nullptr);
+        if (!g_worldToScreen)
+            g_worldToScreen = IL2CPP::resolveMethod(g_cameraClass, GameData::kMWorldToScreen, 1);
         if (!g_worldToScreen) {
             g_worldToScreen = IL2CPP::resolveMethod(g_cameraClass, GameData::kMWorldToScreen, 2);
             g_worldToScreenTwoArg = (g_worldToScreen != nullptr);
@@ -1321,17 +1325,21 @@ static bool worldToScreen(void* camera, Vec3 world, CGSize scr, CGPoint* out) {
     if (!r) return false;
     Vec3 sp = *(Vec3*)((uint8_t*)r + 0x10);
     if (sp.z < 0.01f) return false;
-    // Unity returns physical framebuffer pixels; UIKit uses logical points.
-    CGSize native = [UIScreen mainScreen].nativeBounds.size;
-    CGFloat nativeW = MAX(native.width, native.height);
-    CGFloat nativeH = MIN(native.width, native.height);
-    if (nativeW < 1.0 || nativeH < 1.0) {
-        CGFloat scale = MAX(1.0, [UIScreen mainScreen].scale);
-        nativeW = scr.width * scale;
-        nativeH = scr.height * scale;
+    if (g_worldToViewport) {
+        out->x = sp.x * scr.width;
+        out->y = scr.height - (sp.y * scr.height);
+    } else {
+        CGSize native = [UIScreen mainScreen].nativeBounds.size;
+        CGFloat nativeW = MAX(native.width, native.height);
+        CGFloat nativeH = MIN(native.width, native.height);
+        if (nativeW < 1.0 || nativeH < 1.0) {
+            CGFloat scale = MAX(1.0, [UIScreen mainScreen].scale);
+            nativeW = scr.width * scale;
+            nativeH = scr.height * scale;
+        }
+        out->x = (sp.x / nativeW) * scr.width;
+        out->y = scr.height - ((sp.y / nativeH) * scr.height);
     }
-    out->x = (sp.x / nativeW) * scr.width;
-    out->y = scr.height - ((sp.y / nativeH) * scr.height);
     bool inRange = (out->x >= -100 && out->x <= scr.width + 100 &&
                     out->y >= -100 && out->y <= scr.height + 100);
 
