@@ -38,8 +38,6 @@ static int    g_lockTicks         = 0;
 static float  g_lockedScreenD     = FLT_MAX;
 
 // ---- write bounds ----------------------------------------------
-static const float AIM_PITCH_MIN      = -89.0f;
-static const float AIM_PITCH_MAX      =  89.0f;
 static const float AIM_MAX_YAW_STEP   =   8.0f;
 static const float AIM_MAX_PITCH_STEP =   6.0f;
 static const int   AIM_LOCK_MIN_TICKS =  10;
@@ -68,9 +66,8 @@ extern "C" Vec2 hook_getDegreesDelta(void* self, void* methodInfo) {
         g_pendingFresh = false;
         if (g_hookFireCount < 30) {
             g_hookFireCount++;
-            RAVEN_LOG("aim-hook: fired n=%d self=%p added=(%.3f,%.3f) orig=(%.3f,%.3f) out=(%.3f,%.3f)",
-                      g_hookFireCount, self, g_pendingYaw, g_pendingPitch,
-                      v.x - g_pendingYaw, v.y - g_pendingPitch, v.x, v.y);
+            RAVEN_LOG("aim-hook: fired n=%d self=%p added=(%.3f,%.3f) out=(%.3f,%.3f)",
+                      g_hookFireCount, self, g_pendingYaw, g_pendingPitch, v.x, v.y);
         }
     }
     return v;
@@ -81,11 +78,6 @@ static inline bool ptrOk(void* p) {
     return v >= 0x100000000ULL && v <= 0x8000000000ULL;
 }
 
-static inline float wrap180f(float d) {
-    d = fmodf(d + 180.0f, 360.0f);
-    if (d < 0.0f) d += 360.0f;
-    return d - 180.0f;
-}
 static inline float clampf(float v, float lo, float hi) {
     return v < lo ? lo : (v > hi ? hi : v);
 }
@@ -125,9 +117,6 @@ static void resolveHandles(void) {
         g_rotationDelta       = IL2CPP::resolveMethod(g_displayRotationClass, "get_DegreesDelta", 0);
         g_updateRotationDelta = IL2CPP::resolveMethod(g_displayRotationClass, "get_UpdateDegreesDelta", 0);
 
-        // Log the first four pointers in MethodInfo so we can confirm
-        // the methodPointer offset. If the game crashes after this
-        // build, that log line tells us the layout was different.
         if (g_rotationDelta) {
             void* f0 = *(void**)((uint8_t*)g_rotationDelta + 0x00);
             void* f1 = *(void**)((uint8_t*)g_rotationDelta + 0x08);
@@ -136,8 +125,6 @@ static void resolveHandles(void) {
             RAVEN_LOG("aim-hook: MethodInfo=%p fields=[%p %p %p %p]",
                       g_rotationDelta, f0, f1, f2, f3);
 
-            // Modern Unity IL2CPP puts methodPointer at offset 0 of
-            // MethodInfo. Install our hook there, saving the original.
             void** slot = (void**)((uint8_t*)g_rotationDelta + 0x00);
             void* orig = *slot;
             if (ptrOk(orig)) {
@@ -390,7 +377,6 @@ void tick() {
     if (!RavenSettings::aimEnabled) return;
     resolveHandles();
 
-    // Build-check signature. Throttled once per second.
     static double s_aimSigLast = 0.0;
     double sigNow = CACurrentMediaTime();
     if (sigNow - s_aimSigLast >= 1.0) {
@@ -468,14 +454,6 @@ void tick() {
     d_yaw   = clampf(d_yaw,   -AIM_MAX_YAW_STEP,   AIM_MAX_YAW_STEP);
     d_pitch = clampf(d_pitch, -AIM_MAX_PITCH_STEP, AIM_MAX_PITCH_STEP);
 
-    // ---- Inject via the hooked getter, not the field ----
-    //
-    // We do NOT write to +0x38/+0x3C. The game clears those every
-    // frame and reads them from a code path we cannot synchronize
-    // with. Instead, our hook_getDegreesDelta adds our pending
-    // delta to whatever the game returns from the getter. The game
-    // sees orig + our delta. No race, no window, no jitter from
-    // the clear/read timing.
     void* inputController = readPtr(localPlayer, 0xE8);
     void* rotationSensor = ptrOk(inputController) ? readPtr(inputController, 0x168) : nullptr;
 
