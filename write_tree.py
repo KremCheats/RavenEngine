@@ -1345,10 +1345,10 @@ static bool worldToScreen(void* camera, Vec3 world, CGSize scr, CGPoint* out) {
 
     static int w2s_n = 0;
     if (w2s_n < 15) {
-        RAVEN_LOG("w2s: in=(%.2f,%.2f,%.2f) raw=(%.2f,%.2f,%.2f) native=%.0fx%.0f scr=%.0fx%.0f out=(%.1f,%.1f) ok=%d",
+        RAVEN_LOG("w2s: mode=%s in=(%.2f,%.2f,%.2f) raw=(%.2f,%.2f,%.2f) scr=%.0fx%.0f out=(%.1f,%.1f) ok=%d",
+                  g_worldToViewport ? "viewport" : "pixels",
                   world.x, world.y, world.z,
                   sp.x, sp.y, sp.z,
-                  nativeW, nativeH,
                   scr.width, scr.height,
                   out->x, out->y, inRange ? 1 : 0);
         w2s_n++;
