@@ -2098,15 +2098,16 @@ void tick() {
         RAVEN_LOG("aim: movement pointer out of range: %p", movement);
     }
 
-    // Guarded NO-OP probe only. It writes each candidate's exact current
-    // value back to the same address, never a target angle. This verifies
-    // that the fields tolerate a write without changing camera state.
+    // Raw no-op writes are disabled after the candidate fields caused a
+    // visible flick despite immediate readback equality. Keep this block
+    // available for diagnostics, but do not touch candidate memory.
+    static constexpr bool kNoOpProbeEnabled = false;
     static void* noOpMovement = nullptr;
     static double noOpUntil = 0.0;
     static double noOpNext = 0.0;
     static int noOpWrites = 0;
     static bool noOpHealthy = true;
-    if (movement != noOpMovement) {
+    if (kNoOpProbeEnabled && movement != noOpMovement) {
         noOpMovement = movement;
         noOpUntil = movementOk ? CACurrentMediaTime() + 5.0 : 0.0;
         noOpNext = 0.0;
@@ -2115,7 +2116,7 @@ void tick() {
         if (movementOk) RAVEN_LOG("rot-noop: armed movement=%p window=5s", movement);
     }
     double noOpNow = CACurrentMediaTime();
-    if (movementOk && noOpHealthy && noOpNow < noOpUntil &&
+    if (kNoOpProbeEnabled && movementOk && noOpHealthy && noOpNow < noOpUntil &&
         noOpWrites < 5 && noOpNow >= noOpNext) {
         uint8_t* mb = (uint8_t*)movement;
         float pitch = 0.0f, yaw = 0.0f;
