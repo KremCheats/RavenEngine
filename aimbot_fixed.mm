@@ -51,6 +51,13 @@ static const float AIM_MAX_PITCH_STEP =   6.0f;   // deg / tick
 static const int   AIM_LOCK_MIN_TICKS =  10;
 static const float AIM_SWITCH_HYST_PX =  60.0f;
 
+// ---- reticle calibration ---------------------------------------
+// Pixel offsets applied to the assumed reticle position. Positive X
+// moves the reticle right; positive Y moves it down. Tune these from
+// the settled screen/ret values in the aim-apply log below.
+static const float AIM_RETICLE_OFFSET_X = 0.0f;
+static const float AIM_RETICLE_OFFSET_Y = 0.0f;
+
 static inline bool ptrOk(void* p) {
     uintptr_t v = (uintptr_t)p;
     return v >= 0x100000000ULL && v <= 0x8000000000ULL;
@@ -437,8 +444,10 @@ void tick() {
     CGPoint screen;
     if (!worldToScreen(camera, aimPoint, scr, &screen)) return;
 
-    float dx_px = screen.x - scr.width * 0.5f;
-    float dy_px = screen.y - scr.height * 0.5f;
+    float retX = scr.width  * 0.5f + AIM_RETICLE_OFFSET_X;
+    float retY = scr.height * 0.5f + AIM_RETICLE_OFFSET_Y;
+    float dx_px = screen.x - retX;
+    float dy_px = screen.y - retY;
 
     float fov = MAX(10.0f, RavenSettings::aimFov);
     float halfFovDeg = fov * 0.5f;
@@ -506,8 +515,10 @@ void tick() {
 
     static int applyLogCount = 0;
     if (applyLogCount < 120) {
-        RAVEN_LOG("aim-apply: d=(%.2f,%.2f) applied=%d sensor=%p pre=(%.3f,%.3f) post=(%.3f,%.3f)",
-                  d_yaw, d_pitch, applied, rotationSensor, pre38y, pre38p, post38y, post38p);
+        RAVEN_LOG("aim-apply: screen=(%.2f,%.2f) ret=(%.2f,%.2f) pxerr=(%.2f,%.2f) d=(%.2f,%.2f) applied=%d sensor=%p pre=(%.3f,%.3f) post=(%.3f,%.3f)",
+                  screen.x, screen.y, retX, retY, dx_px, dy_px,
+                  d_yaw, d_pitch, applied, rotationSensor,
+                  pre38y, pre38p, post38y, post38p);
         applyLogCount++;
     }
 }
