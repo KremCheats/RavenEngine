@@ -57,7 +57,7 @@ static const float AIM_SWITCH_HYST_PX =  60.0f;
 // Pixel offsets applied to the assumed reticle position. Positive X
 // moves the reticle right; positive Y moves it down. Tune these from
 // the settled screen/ret values in the aim-apply log below.
-static const float AIM_RETICLE_OFFSET_X = -18.0f;
+static const float AIM_RETICLE_OFFSET_X = 18.0f;
 static const float AIM_RETICLE_OFFSET_Y = 0.0f;
 
 static inline bool ptrOk(void* p) {
@@ -479,10 +479,9 @@ void tick() {
     // we compounded it. Next frame the game read 585, clamped to 90,
     // dumped the residual into yaw, and the camera snapped.
     //
-    // Fix: normalize whatever the game left behind INTO the legal
-    // range BEFORE we use it as a base. Then step-clamp, add, and
-    // re-normalize on write. The value we leave behind is always
-    // inside ±180 yaw / ±89 pitch no matter what came in.
+    // Fix: do not use the previous field as a base at all. Write only
+    // this tick's finite, step-clamped delta, so stale values cannot
+    // accumulate into drift, a NaN spin, or a ±180-degree flip.
     void* inputController = readPtr(localPlayer, 0xE8);
     void* rotationSensor = ptrOk(inputController) ? readPtr(inputController, 0x168) : nullptr;
 
@@ -490,17 +489,9 @@ void tick() {
     bool yawSpike = false;
     bool pitchSpike = false;
     bool sensorInvalid = false;
-    static void* s_pitchSensor = nullptr;
-    static float s_lastGoodYaw = 0.0f;
-    static float s_lastGoodPitch = 0.0f;
     float pre38y = 0, pre38p = 0, post38y = 0, post38p = 0;
     if (ptrOk(rotationSensor)) {
         uint8_t* p = (uint8_t*)rotationSensor;
-        if (rotationSensor != s_pitchSensor) {
-            s_pitchSensor = rotationSensor;
-            s_lastGoodYaw = 0.0f;
-            s_lastGoodPitch = 0.0f;
-        }
         float rawY = *(float*)(p + 0x38);
         float rawP = *(float*)(p + 0x3C);
         pre38y = rawY;
@@ -509,26 +500,22 @@ void tick() {
         sensorInvalid = !isfinite(rawY) || !isfinite(rawP);
         yawSpike = isfinite(rawY) && fabsf(rawY) > AIM_RAW_YAW_LIMIT;
 
-        // 1. Normalize valid input, or recover from the last known-good
-        // finite values. Never leave NaN/Inf in the live sensor fields.
-        float baseY = (!isfinite(rawY) || yawSpike) ? s_lastGoodYaw : wrap180f(rawY);
+        // 1. The fields are rotation deltas, not an absolute camera angle.
+        // Never accumulate the game's previous value: stale or corrupted
+        // values can otherwise wrap across ±180° and flip the camera.
         pitchSpike = isfinite(rawP) && fabsf(rawP) > AIM_RAW_PITCH_LIMIT;
-        float baseP = (!isfinite(rawP) || pitchSpike)
-                    ? s_lastGoodPitch
-                    : clampf(rawP, AIM_PITCH_MIN, AIM_PITCH_MAX);
+        // 2. Write only this tick's already step-clamped delta. If the
+        // sensor is invalid or spikes, the safe bounded aim delta remains
+        // valid and no bad sensor value is propagated.
+        float newY = d_yaw;
+        float newP = d_pitch;
 
-        // 2. apply the already step-clamped delta
-        float newY = wrap180f(baseY + d_yaw);
-        float newP = clampf(baseP + d_pitch, AIM_PITCH_MIN, AIM_PITCH_MAX);
-
-        // 3. re-verify before committing, then remember safe finite bases
+        // 3. re-verify before committing
         if (isfinite(newY) && isfinite(newP)) {
             *(float*)(p + 0x38) = newY;
             *(float*)(p + 0x3C) = newP;
             post38y = newY;
             post38p = newP;
-            s_lastGoodYaw = newY;
-            s_lastGoodPitch = newP;
             applied = true;
         }
     }
