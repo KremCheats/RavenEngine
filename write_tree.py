@@ -2255,7 +2255,6 @@ void setEnabled(bool on) {
 void tick() {
     if (!RavenSettings::aimEnabled) return;
     resolveHandles();
-    probeGyro();
 
     RAVEN_LOG("aim: pc=%p cam=%p team=%p tf=%p",
               g_playerRootClass, g_getMainCamera, g_getTeamId, g_getRootTransform);
@@ -3035,17 +3034,6 @@ static void forceLandscape(void) {
     self.window.rootViewController.view.userInteractionEnabled = YES;
     [self attachToScene];
     self.window.hidden = NO;
-
-    if (@available(iOS 16.0, *)) {
-        UIWindowScene* scene = self.window.windowScene;
-        if (scene) {
-            UIWindowSceneGeometryPreferencesIOS* prefs =
-                [[UIWindowSceneGeometryPreferencesIOS alloc] initWithInterfaceOrientations:UIInterfaceOrientationMaskLandscape];
-            [scene requestGeometryUpdateWithPreferences:prefs errorHandler:nil];
-        }
-    } else {
-        [[UIDevice currentDevice] setValue:@(UIInterfaceOrientationLandscapeRight) forKey:@"orientation"];
-    }
 
     [self buildPanel];
     [self buildBall];
