@@ -55,7 +55,7 @@ static const float AIM_SWITCH_HYST_PX =  60.0f;
 // Pixel offsets applied to the assumed reticle position. Positive X
 // moves the reticle right; positive Y moves it down. Tune these from
 // the settled screen/ret values in the aim-apply log below.
-static const float AIM_RETICLE_OFFSET_X = 0.0f;
+static const float AIM_RETICLE_OFFSET_X = -18.0f;
 static const float AIM_RETICLE_OFFSET_Y = 0.0f;
 
 static inline bool ptrOk(void* p) {
