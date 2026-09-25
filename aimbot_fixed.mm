@@ -47,8 +47,9 @@ static float  g_lockedScreenD     = FLT_MAX;
 // 90.000 / -119.959 in the same tick). We never let a write cross.
 static const float AIM_RAW_YAW_LIMIT  = 180.0f;  // reject impossible yaw outliers
 static const float AIM_RAW_PITCH_LIMIT = 90.0f;  // reject values beyond legal pitch
-static const float AIM_MAX_YAW_STEP   =   8.0f;   // deg / tick
-static const float AIM_MAX_PITCH_STEP =   6.0f;   // deg / tick
+static const float AIM_ASSIST_GAIN    =   0.35f;  // preserve manual camera control
+static const float AIM_MAX_YAW_STEP   =   3.0f;   // deg / tick
+static const float AIM_MAX_PITCH_STEP =   2.5f;   // deg / tick
 static const int   AIM_LOCK_MIN_TICKS =  10;
 static const float AIM_SWITCH_HYST_PX =  60.0f;
 
@@ -473,8 +474,8 @@ void tick() {
     float d_pitch = -dy_px * degPerPxY;
 
     float smooth = MAX(1.0f, RavenSettings::aimSmooth);
-    d_yaw   *= (1.0f / smooth);
-    d_pitch *= (1.0f / smooth);
+    d_yaw   *= (AIM_ASSIST_GAIN / smooth);
+    d_pitch *= (AIM_ASSIST_GAIN / smooth);
 
     // Per-tick step clamp. Small enough that even an unnormalized
     // input can't jump the game's clamp in one frame.
@@ -502,6 +503,7 @@ void tick() {
     bool yawSpike = false;
     bool pitchSpike = false;
     bool sensorInvalid = false;
+    bool spikeQuarantined = false;
     float pre38y = 0, pre38p = 0, post38y = 0, post38p = 0;
     if (ptrOk(rotationSensor)) {
         uint8_t* p = (uint8_t*)rotationSensor;
@@ -517,11 +519,13 @@ void tick() {
         // Never accumulate the game's previous value: stale or corrupted
         // values can otherwise wrap across ±180° and flip the camera.
         pitchSpike = isfinite(rawP) && fabsf(rawP) > AIM_RAW_PITCH_LIMIT;
-        // 2. Write only this tick's already step-clamped delta. If the
-        // sensor is invalid or spikes, the safe bounded aim delta remains
-        // valid and no bad sensor value is propagated.
-        float newY = d_yaw;
-        float newP = d_pitch;
+        // 2. Quarantine a corrupted input frame completely. Do not apply
+        // aim correction on the same tick that the game exposes an invalid
+        // or impossible sensor value; another asynchronous consumer may still
+        // be processing that frame.
+        spikeQuarantined = sensorInvalid || yawSpike || pitchSpike;
+        float newY = spikeQuarantined ? 0.0f : d_yaw;
+        float newP = spikeQuarantined ? 0.0f : d_pitch;
 
         // 3. re-verify before committing
         if (isfinite(newY) && isfinite(newP)) {
@@ -535,9 +539,9 @@ void tick() {
 
     static int applyLogCount = 0;
     if (applyLogCount < 1000) {
-        RAVEN_LOG("aim-apply: target=%p lockTicks=%d yawSpike=%d pitchSpike=%d sensorInvalid=%d screen=(%.2f,%.2f) ret=(%.2f,%.2f) pxerr=(%.2f,%.2f) d=(%.2f,%.2f) applied=%d sensor=%p pre=(%.3f,%.3f) post=(%.3f,%.3f)",
+        RAVEN_LOG("aim-apply: target=%p lockTicks=%d yawSpike=%d pitchSpike=%d sensorInvalid=%d quarantined=%d screen=(%.2f,%.2f) ret=(%.2f,%.2f) pxerr=(%.2f,%.2f) d=(%.2f,%.2f) applied=%d sensor=%p pre=(%.3f,%.3f) post=(%.3f,%.3f)",
                   target, g_lockTicks,
-                  yawSpike, pitchSpike, sensorInvalid,
+                  yawSpike, pitchSpike, sensorInvalid, spikeQuarantined,
                   screen.x, screen.y, retX, retY, dx_px, dy_px,
                   d_yaw, d_pitch, applied, rotationSensor,
                   pre38y, pre38p, post38y, post38p);
