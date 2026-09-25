@@ -3011,8 +3011,6 @@ static void forceLandscape(void) {
     if (self.window) return;
     [[RavenESP shared] attach];
 
-    forceLandscape();
-
     self.tabButtons    = [NSMutableArray array];
     self.tabViews      = [NSMutableDictionary dictionary];
     self.activeTab     = 0;
@@ -3030,7 +3028,7 @@ static void forceLandscape(void) {
     });
 
     self.window = [[RavenWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
-    self.window.windowLevel = UIWindowLevelAlert + 100;
+    self.window.windowLevel = UIWindowLevelNormal + 1.0;
     self.window.backgroundColor = [UIColor clearColor];
     self.window.rootViewController = [UIViewController new];
     self.window.rootViewController.view.backgroundColor = [UIColor clearColor];
