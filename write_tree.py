@@ -833,6 +833,9 @@ namespace IL2CPP {
     void* objectGetClass(void* obj);
     void* classGetParent(void* klass);
     const char* classGetName(void* klass);
+    int methodParamCount(void* method);
+    const char* methodParamType(void* method, int index);
+    const char* methodReturnType(void* method);
 
     void* resolveMethod(void* klass, const char* name, int argc);
     void* invokeMethod(void* method, void* obj, void** args);
@@ -873,7 +876,10 @@ typedef void    (*t_field_static_get_value)(void*, void*);
 typedef void*   (*t_object_get_class)(void*);
 typedef void*   (*t_class_get_parent_fn)(void*);
 typedef const char* (*t_class_get_name_fn)(void*);
-
+typedef uint32_t (*t_method_get_param_count_fn)(void*);
+typedef void*   (*t_method_get_param_fn)(void*, uint32_t);
+typedef const char* (*t_type_get_name_fn)(void*);
+typedef void*   (*t_method_get_return_type_fn)(void*);
 static t_domain_get p_domain_get = nullptr;
 static t_thread_attach p_thread_attach = nullptr;
 static t_domain_assembly_open p_domain_assembly_open = nullptr;
@@ -888,6 +894,10 @@ static t_field_static_get_value p_field_static_get_value = nullptr;
 static t_object_get_class p_object_get_class = nullptr;
 static t_class_get_parent_fn p_class_get_parent_fn = nullptr;
 static t_class_get_name_fn p_class_get_name_fn = nullptr;
+static t_method_get_param_count_fn p_method_get_param_count = nullptr;
+static t_method_get_param_fn p_method_get_param = nullptr;
+static t_type_get_name_fn p_type_get_name = nullptr;
+static t_method_get_return_type_fn p_method_get_return_type = nullptr;
 
 static void* g_domain = nullptr;
 static void* g_img    = nullptr;
@@ -917,6 +927,10 @@ bool init() {
     p_runtime_invoke = (t_runtime_invoke)rs("il2cpp_runtime_invoke");
     p_object_new = (t_object_new)rs("il2cpp_object_new");
     p_field_get_offset = (t_field_get_offset)rs("il2cpp_field_get_offset");
+    p_method_get_param_count = (t_method_get_param_count_fn)rs("il2cpp_method_get_param_count");
+    p_method_get_param = (t_method_get_param_fn)rs("il2cpp_method_get_param");
+    p_type_get_name = (t_type_get_name_fn)rs("il2cpp_type_get_name");
+    p_method_get_return_type = (t_method_get_return_type_fn)rs("il2cpp_method_get_return_type");
 
     if (!p_domain_get || !p_class_from_name || !p_assembly_get_image) {
         snprintf(g_status, sizeof(g_status), "il2cpp exports missing");
@@ -1060,6 +1074,22 @@ const char* classGetName(void* klass) {
         p_class_get_name_fn = (t_class_get_name_fn)rs("il2cpp_class_get_name");
     if (p_class_get_name_fn) return p_class_get_name_fn(klass);
     return "";
+}
+
+int methodParamCount(void* method) {
+    return (method && p_method_get_param_count) ? (int)p_method_get_param_count(method) : -1;
+}
+
+const char* methodParamType(void* method, int index) {
+    if (!method || index < 0 || !p_method_get_param || !p_type_get_name) return "";
+    void* type = p_method_get_param(method, (uint32_t)index);
+    return type ? p_type_get_name(type) : "";
+}
+
+const char* methodReturnType(void* method) {
+    if (!method || !p_method_get_return_type || !p_type_get_name) return "";
+    void* type = p_method_get_return_type(method);
+    return type ? p_type_get_name(type) : "";
 }
 
 void* resolveMethod(void* klass, const char* name, int argc) {
@@ -1897,6 +1927,10 @@ static void resolveHandles(void) {
               g_keymapInputClass, g_keymapUpdateGyro, g_displayInputClass, g_inputControllerClass,
               g_combatInputClass, g_customGyroClass, g_customGyroRotationRate,
               g_combatGetAxis, g_lookDeltaStickGyro);
+    RAVEN_LOG("gyro-signature: displayUpdate=%p argc=%d param0=%s return=%s keymapUpdate=%p",
+              g_updateGyro1, IL2CPP::methodParamCount(g_updateGyro1),
+              IL2CPP::methodParamType(g_updateGyro1, 0),
+              IL2CPP::methodReturnType(g_updateGyro1), g_keymapUpdateGyro);
     g_resolved = (g_playerRootClass && g_cameraCtrlClass && g_getTeamId &&
                   g_getActiveMobView && g_getRenderCamera);
 }
