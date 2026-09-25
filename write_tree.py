@@ -1482,11 +1482,42 @@ static UIColor* espPaletteColor(int index) {
 }
 
 - (void)render {
-    if (!RavenSettings::espEnabled) return;
+    BOOL guidesEnabled = RavenSettings::aimShowCircle || RavenSettings::visCrosshair || RavenSettings::visFovCircle;
+    if (!RavenSettings::espEnabled && !guidesEnabled) return;
     if (!self.window) [self attach];
     [self attachToScene];
     self.window.hidden = NO;
     [self begin];
+
+    CGSize guideScreen = self.window.bounds.size;
+    CGPoint guideCenter = CGPointMake(guideScreen.width / 2.0, guideScreen.height / 2.0);
+    if (RavenSettings::aimShowCircle) {
+        CGFloat radius = (RavenSettings::aimFov / 90.0f) * (guideScreen.width / 2.0f);
+        [self drawGuideCircle:guideCenter radius:radius color:[RAVEN_RED colorWithAlphaComponent:0.78]];
+    }
+    if (RavenSettings::visFovCircle) {
+        [self drawGuideCircle:guideCenter radius:RavenSettings::visFovRadius
+                         color:[UIColor colorWithRed:0.95 green:0.75 blue:0.20 alpha:0.78]];
+    }
+    if (RavenSettings::visCrosshair) {
+        CGFloat s = MAX(2.0f, RavenSettings::visCrosshairSize);
+        CGFloat t = MAX(1.0f, RavenSettings::visCrosshairThickness);
+        UIColor* cc = [UIColor colorWithRed:0.95 green:0.95 blue:0.95 alpha:0.90];
+        if (RavenSettings::visCrosshairStyle == 0) {
+            [self drawGuideCircle:guideCenter radius:t color:cc];
+        } else if (RavenSettings::visCrosshairStyle == 2) {
+            [self drawGuideCircle:guideCenter radius:s color:cc];
+        } else {
+            [self drawLine:CGPointMake(guideCenter.x - s, guideCenter.y)
+                        to:CGPointMake(guideCenter.x + s, guideCenter.y) color:cc];
+            [self drawLine:CGPointMake(guideCenter.x, guideCenter.y - s)
+                        to:CGPointMake(guideCenter.x, guideCenter.y + s) color:cc];
+            if (RavenSettings::visCrosshairStyle == 3)
+                [self drawLine:CGPointMake(guideCenter.x - s, guideCenter.y + s)
+                            to:CGPointMake(guideCenter.x + s, guideCenter.y + s) color:cc];
+        }
+        self.guides.lineWidth = t;
+    }
     resolveHandles();
 
     RAVEN_LOG("esp: pc=%p local=%p list=%p cam=%p tf=%p",
@@ -1550,31 +1581,16 @@ static UIColor* espPaletteColor(int index) {
     CGSize screen = self.window.bounds.size;
     NSMutableString* labels = [NSMutableString string];
 
-    CGPoint center = CGPointMake(screen.width / 2.0, screen.height / 2.0);
-    if (RavenSettings::aimShowCircle) {
-        CGFloat radius = (RavenSettings::aimFov / 90.0f) * (screen.width / 2.0f);
-        [self drawGuideCircle:center radius:radius color:[RAVEN_RED colorWithAlphaComponent:0.78]];
+    static bool controls_logged = false;
+    if (!controls_logged) {
+        RAVEN_LOG("esp-controls: esp=%d box=%d corner=%d snap=%d aimCircle=%d visCircle=%d crosshair=%d",
+                  RavenSettings::espEnabled, RavenSettings::espBox,
+                  RavenSettings::espCorner, RavenSettings::espSnaplines,
+                  RavenSettings::aimShowCircle, RavenSettings::visFovCircle,
+                  RavenSettings::visCrosshair);
+        controls_logged = true;
     }
-    if (RavenSettings::visFovCircle) {
-        [self drawGuideCircle:center radius:RavenSettings::visFovRadius
-                         color:[UIColor colorWithRed:0.95 green:0.75 blue:0.20 alpha:0.78]];
-    }
-    if (RavenSettings::visCrosshair) {
-        CGFloat s = MAX(2.0f, RavenSettings::visCrosshairSize);
-        CGFloat t = MAX(1.0f, RavenSettings::visCrosshairThickness);
-        UIColor* cc = [UIColor colorWithRed:0.95 green:0.95 blue:0.95 alpha:0.90];
-        if (RavenSettings::visCrosshairStyle == 0) {
-            [self drawGuideCircle:center radius:t color:cc];
-        } else if (RavenSettings::visCrosshairStyle == 2) {
-            [self drawGuideCircle:center radius:s color:cc];
-        } else {
-            [self drawLine:CGPointMake(center.x - s, center.y) to:CGPointMake(center.x + s, center.y) color:cc];
-            [self drawLine:CGPointMake(center.x, center.y - s) to:CGPointMake(center.x, center.y + s) color:cc];
-            if (RavenSettings::visCrosshairStyle == 3)
-                [self drawLine:CGPointMake(center.x - s, center.y + s) to:CGPointMake(center.x + s, center.y + s) color:cc];
-        }
-        self.guides.lineWidth = t;
-    }
+
 
     // -------------------------------------------------------------------
     // Slot dump. One pass per match (bound to localPlayer change), first
@@ -3761,7 +3777,9 @@ static void forceLandscape(void) {
         [self clampPanel];
     }
     if (!self.runtimeActive) return;
-    if (RavenSettings::espEnabled) [[RavenESP shared] render];
+    if (RavenSettings::espEnabled || RavenSettings::aimShowCircle ||
+        RavenSettings::visFovCircle || RavenSettings::visCrosshair)
+        [[RavenESP shared] render];
     if (RavenSettings::aimEnabled) RavenAimbot::tick();
 }
 
