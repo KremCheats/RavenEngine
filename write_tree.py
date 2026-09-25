@@ -2104,12 +2104,18 @@ void tick() {
     static Vec3   g_dumpProbe   = {0,0,0};
     static bool   g_dumpProbeOk = false;
     static double g_dumpLastLog = 0.0;
+    static void*  g_candidateLocal = nullptr;
+    static bool   g_candidateHave = false;
+    static float  g_candidatePrev[0x100 / sizeof(float)] = {};
 
     if (localPlayer != g_dumpLocal) {
         g_dumpLocal   = localPlayer;
         g_dumpUntil   = CACurrentMediaTime() + 8.0;
         g_dumpProbeOk = false;
         g_dumpLastLog = 0.0;
+        g_candidateLocal = localPlayer;
+        g_candidateHave = false;
+        memset(g_candidatePrev, 0, sizeof(g_candidatePrev));
     }
 
     if (CACurrentMediaTime() < g_dumpUntil) {
@@ -2143,6 +2149,29 @@ void tick() {
                     *(uint8_t*)(b+0x100), *(uint8_t*)(b+0x104),
                     *(uint8_t*)(b+0x108), *(uint8_t*)(b+0x109),
                     *(uint8_t*)(b+0x10A), *(uint8_t*)(b+0x132));
+
+                // Read-only candidate scan. The object is already known to
+                // be valid and the existing dump verifies this range is
+                // readable. Report only finite, angle-like floats that
+                // changed since the previous sample so manual camera pans
+                // stand out without flooding the diagnostic log.
+                int changed = 0;
+                for (uint32_t off = 0x20; off < 0x100; off += sizeof(float)) {
+                    uint32_t slot = off / sizeof(float);
+                    float v = *(float*)(b + off);
+                    if (!isfinite(v) || fabsf(v) > 720.0f) {
+                        g_candidatePrev[slot] = v;
+                        continue;
+                    }
+                    float delta = g_candidateHave ? (v - g_candidatePrev[slot]) : 0.0f;
+                    if (g_candidateHave && fabsf(delta) >= 0.25f && changed < 16) {
+                        RAVEN_LOG("movcand off=0x%03x value=%.4f delta=%.4f",
+                                  off, v, delta);
+                        changed++;
+                    }
+                    g_candidatePrev[slot] = v;
+                }
+                g_candidateHave = true;
             }
 
             if (g_dumpProbeOk) {
