@@ -1775,6 +1775,16 @@ static void* g_newGyroCurrent      = nullptr;
 static void* g_attitudeCurrent     = nullptr;
 static void* g_gravityCurrent      = nullptr;
 static void* g_accelCurrent        = nullptr;
+static void* g_displayRotationClass = nullptr;
+static void* g_displayInputClass    = nullptr;
+static void* g_inputControllerClass = nullptr;
+static void* g_combatInputClass     = nullptr;
+static void* g_customGyroClass      = nullptr;
+static void* g_rotationDelta        = nullptr;
+static void* g_updateRotationDelta  = nullptr;
+static void* g_customGyroRotationRate = nullptr;
+static void* g_lookDeltaStickGyro   = nullptr;
+static void* g_combatGetAxis        = nullptr;
 static bool  g_resolved            = false;
 static void* g_lockedTarget        = nullptr;
 static double g_lockedSince        = 0.0;
@@ -1850,12 +1860,30 @@ static void resolveHandles(void) {
     if (g_attitudeClass) g_attitudeCurrent = IL2CPP::resolveMethod(g_attitudeClass, "get_current", 0);
     if (g_gravityClass)  g_gravityCurrent  = IL2CPP::resolveMethod(g_gravityClass, "get_current", 0);
     if (g_accelClass)    g_accelCurrent    = IL2CPP::resolveMethod(g_accelClass, "get_current", 0);
-    RAVEN_LOG("gyro-resolve: inputClass=%p gyroClass=%p getGyro=%p enabled=%p interval=%p attitude=%p rate=%p gravity=%p ready=%d newGyro=%p/%p attitudeSensor=%p/%p gravitySensor=%p/%p accelerometer=%p/%p",
+    g_displayRotationClass = IL2CPP::klass("CombatMaster.Battle.InputControllers", "DisplayRotationSensor");
+    g_displayInputClass    = IL2CPP::klass("CombatMaster.Battle.InputControllers", "DisplayInputController");
+    g_inputControllerClass = IL2CPP::klass("CombatMaster.Battle.InputControllers", "InputControllerBase");
+    g_combatInputClass     = IL2CPP::klass("CombatMaster", "Input");
+    g_customGyroClass      = IL2CPP::klass("", "Gyro");
+    if (g_displayRotationClass) {
+        g_rotationDelta       = IL2CPP::resolveMethod(g_displayRotationClass, "get_DegreesDelta", 0);
+        g_updateRotationDelta = IL2CPP::resolveMethod(g_displayRotationClass, "get_UpdateDegreesDelta", 0);
+    }
+    if (g_inputControllerClass)
+        g_lookDeltaStickGyro = IL2CPP::resolveMethod(g_inputControllerClass, "GetLookDeltaStickAndGyro", 0);
+    if (g_combatInputClass)
+        g_combatGetAxis = IL2CPP::resolveMethod(g_combatInputClass, "GetAxis", 1);
+    if (g_customGyroClass)
+        g_customGyroRotationRate = IL2CPP::resolveMethod(g_customGyroClass, "get_RotationRate", 0);
+    RAVEN_LOG("gyro-resolve: inputClass=%p gyroClass=%p getGyro=%p enabled=%p interval=%p attitude=%p rate=%p gravity=%p ready=%d newGyro=%p/%p attitudeSensor=%p/%p gravitySensor=%p/%p accelerometer=%p/%p customRotation=%p/%p displayInput=%p baseInput=%p combatInput=%p gyro=%p/%p axis=%p lookDelta=%p",
               g_inputClass, g_gyroClass, g_getGyro, g_gyroEnabled,
               g_gyroUpdateInterval, g_gyroAttitude, g_gyroRotationRate,
               g_gyroGravity, g_gyroResolved, g_newGyroClass, g_newGyroCurrent,
               g_attitudeClass, g_attitudeCurrent, g_gravityClass, g_gravityCurrent,
-              g_accelClass, g_accelCurrent);
+              g_accelClass, g_accelCurrent, g_displayRotationClass, g_rotationDelta,
+              g_updateRotationDelta, g_displayInputClass, g_inputControllerClass,
+              g_combatInputClass, g_customGyroClass, g_customGyroRotationRate,
+              g_combatGetAxis, g_lookDeltaStickGyro);
     g_resolved = (g_playerRootClass && g_cameraCtrlClass && g_getTeamId &&
                   g_getActiveMobView && g_getRenderCamera);
 }
