@@ -1875,7 +1875,7 @@ static void resolveHandles(void) {
         g_combatGetAxis = IL2CPP::resolveMethod(g_combatInputClass, "GetAxis", 1);
     if (g_customGyroClass)
         g_customGyroRotationRate = IL2CPP::resolveMethod(g_customGyroClass, "get_RotationRate", 0);
-    RAVEN_LOG("gyro-resolve: inputClass=%p gyroClass=%p getGyro=%p enabled=%p interval=%p attitude=%p rate=%p gravity=%p ready=%d newGyro=%p/%p attitudeSensor=%p/%p gravitySensor=%p/%p accelerometer=%p/%p customRotation=%p/%p displayInput=%p baseInput=%p combatInput=%p gyro=%p/%p axis=%p lookDelta=%p",
+    RAVEN_LOG("gyro-resolve: inputClass=%p gyroClass=%p getGyro=%p enabled=%p interval=%p attitude=%p rate=%p gravity=%p ready=%d newGyro=%p/%p attitudeSensor=%p/%p gravitySensor=%p/%p accelerometer=%p/%p customRotation=%p/%p/%p displayInput=%p baseInput=%p combatInput=%p gyro=%p/%p axis=%p lookDelta=%p",
               g_inputClass, g_gyroClass, g_getGyro, g_gyroEnabled,
               g_gyroUpdateInterval, g_gyroAttitude, g_gyroRotationRate,
               g_gyroGravity, g_gyroResolved, g_newGyroClass, g_newGyroCurrent,
