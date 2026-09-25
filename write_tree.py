@@ -1758,6 +1758,15 @@ static void* g_cameraClass         = nullptr;
 static void* g_worldToScreen       = nullptr;
 static bool  g_worldToScreenTwoArg = false;
 static void* g_getRootTransform    = nullptr;
+static void* g_inputClass          = nullptr;
+static void* g_gyroClass           = nullptr;
+static void* g_getGyro             = nullptr;
+static void* g_gyroEnabled         = nullptr;
+static void* g_gyroUpdateInterval  = nullptr;
+static void* g_gyroAttitude        = nullptr;
+static void* g_gyroRotationRate    = nullptr;
+static void* g_gyroGravity         = nullptr;
+static bool  g_gyroResolved        = false;
 static bool  g_resolved            = false;
 static void* g_lockedTarget        = nullptr;
 static double g_lockedSince        = 0.0;
@@ -1814,6 +1823,17 @@ static void resolveHandles(void) {
     if (g_cameraCtrlClass) {
         g_getRenderCamera  = IL2CPP::resolveMethod(g_cameraCtrlClass, GameData::kMGetRenderCamera, 0);
     }
+    g_inputClass = IL2CPP::klass("UnityEngine", "Input");
+    g_gyroClass  = IL2CPP::klass("UnityEngine", "Gyroscope");
+    if (g_inputClass) g_getGyro = IL2CPP::resolveMethod(g_inputClass, "get_gyro", 0);
+    if (g_gyroClass) {
+        g_gyroEnabled        = IL2CPP::resolveMethod(g_gyroClass, "get_enabled", 0);
+        g_gyroUpdateInterval = IL2CPP::resolveMethod(g_gyroClass, "get_updateInterval", 0);
+        g_gyroAttitude       = IL2CPP::resolveMethod(g_gyroClass, "get_attitude", 0);
+        g_gyroRotationRate   = IL2CPP::resolveMethod(g_gyroClass, "get_rotationRate", 0);
+        g_gyroGravity        = IL2CPP::resolveMethod(g_gyroClass, "get_gravity", 0);
+    }
+    g_gyroResolved = (g_getGyro && g_gyroClass);
     g_resolved = (g_playerRootClass && g_cameraCtrlClass && g_getTeamId &&
                   g_getActiveMobView && g_getRenderCamera);
 }
@@ -1851,6 +1871,66 @@ static int32_t invokeInt(void* method, void* obj) {
     if (!method || !obj) return 0;
     void* r = IL2CPP::invokeMethod(method, obj, nullptr);
     return r ? *(int32_t*)((uint8_t*)r + 0x10) : 0;
+}
+
+static void* invokeStaticPtr(void* method) {
+    return method ? IL2CPP::invokeMethod(method, nullptr, nullptr) : nullptr;
+}
+static bool invokeBool(void* method, void* obj, bool fallback) {
+    if (!method || !obj) return fallback;
+    void* r = IL2CPP::invokeMethod(method, obj, nullptr);
+    return r ? (*(uint8_t*)((uint8_t*)r + 0x10) != 0) : fallback;
+}
+static float invokeFloat(void* method, void* obj, float fallback) {
+    if (!method || !obj) return fallback;
+    void* r = IL2CPP::invokeMethod(method, obj, nullptr);
+    return r ? *(float*)((uint8_t*)r + 0x10) : fallback;
+}
+static bool invokeVec3(void* method, void* obj, Vec3* out) {
+    if (!method || !obj || !out) return false;
+    void* r = IL2CPP::invokeMethod(method, obj, nullptr);
+    if (!r) return false;
+    *out = *(Vec3*)((uint8_t*)r + 0x10);
+    return isfinite(out->x) && isfinite(out->y) && isfinite(out->z);
+}
+static bool invokeQuat(void* method, void* obj, float* x, float* y, float* z, float* w) {
+    if (!method || !obj) return false;
+    void* r = IL2CPP::invokeMethod(method, obj, nullptr);
+    if (!r) return false;
+    float* q = (float*)((uint8_t*)r + 0x10);
+    *x = q[0]; *y = q[1]; *z = q[2]; *w = q[3];
+    return isfinite(*x) && isfinite(*y) && isfinite(*z) && isfinite(*w);
+}
+
+static void probeGyro(void) {
+    if (!g_gyroResolved) return;
+    static double last = 0.0;
+    static void* lastGyro = nullptr;
+    double now = CACurrentMediaTime();
+    if (now - last < 0.25) return;
+    last = now;
+    void* gyro = invokeStaticPtr(g_getGyro);
+    if (!ptrOk(gyro)) {
+        if (lastGyro) RAVEN_LOG("gyro: pointer lost");
+        lastGyro = nullptr;
+        return;
+    }
+    if (gyro != lastGyro) {
+        lastGyro = gyro;
+        RAVEN_LOG("gyro: ptr=%p enabled=%d interval=%.5f attitude=%d rate=%d gravity=%d",
+                  gyro, invokeBool(g_gyroEnabled, gyro, false),
+                  invokeFloat(g_gyroUpdateInterval, gyro, -1.0f),
+                  g_gyroAttitude != nullptr, g_gyroRotationRate != nullptr,
+                  g_gyroGravity != nullptr);
+    }
+    float qx=0, qy=0, qz=0, qw=1;
+    Vec3 rate={0,0,0}, gravity={0,0,0};
+    bool haveQ = invokeQuat(g_gyroAttitude, gyro, &qx, &qy, &qz, &qw);
+    bool haveR = invokeVec3(g_gyroRotationRate, gyro, &rate);
+    bool haveG = invokeVec3(g_gyroGravity, gyro, &gravity);
+    RAVEN_LOG("gyro-read: q=%d %.4f %.4f %.4f %.4f rate=%d %.4f %.4f %.4f gravity=%d %.4f %.4f %.4f",
+              haveQ, qx, qy, qz, qw, haveR, rate.x, rate.y, rate.z,
+              haveG, gravity.x, gravity.y, gravity.z);
 }
 
 static bool readTransformPos(void* t, Vec3* out) {
@@ -2071,6 +2151,7 @@ void setEnabled(bool on) {
 void tick() {
     if (!RavenSettings::aimEnabled) return;
     resolveHandles();
+    probeGyro();
 
     RAVEN_LOG("aim: pc=%p cam=%p team=%p tf=%p",
               g_playerRootClass, g_getMainCamera, g_getTeamId, g_getRootTransform);
