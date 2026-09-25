@@ -1,0 +1,43 @@
+name: Regenerate Raven tree
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "write_tree.py"
+      - "Aimbot_fixed.mm"
+      - ".github/workflows/regen-tree.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  regen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run write_tree.py
+        run: python3 write_tree.py
+
+      - name: Overwrite Aimbot.mm with fixed version
+        run: |
+          test -f Aimbot_fixed.mm
+          cp Aimbot_fixed.mm Src/Aimbot.mm
+          grep -q "UpdateGyroAdditiveInput" Src/Aimbot.mm
+          echo "Src/Aimbot.mm replaced with fix"
+
+      - name: Commit and push
+        run: |
+          git config user.name "RavenEngine Bot"
+          git config user.email "bot@kremcheats.local"
+          git add -A
+          git diff --cached --quiet && echo "nothing to commit" && exit 0
+          git commit -m "regenerate tree + aimbot additive-input fix"
+          git push
