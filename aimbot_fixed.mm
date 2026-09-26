@@ -12,18 +12,12 @@
 namespace RavenAimbot {
 
 static void* g_playerRootClass     = nullptr;
-static void* g_playerHealthClass   = nullptr;
 static void* g_playerMobViewClass  = nullptr;
 static void* g_getTeamId           = nullptr;
 static void* g_getActiveMobView    = nullptr;
-static void* g_getIsVisible        = nullptr;
-static void* g_getIsDead           = nullptr;
-static void* g_getIsDowned         = nullptr;
 static void* g_getMainCamera       = nullptr;
 static void* g_getHeadTransform    = nullptr;
-static void* g_getNeckTransform    = nullptr;
 static void* g_getChestTransform   = nullptr;
-static void* g_getPelvisTransform  = nullptr;
 static void* g_getPosition         = nullptr;
 static void* g_transformClass      = nullptr;
 static void* g_cameraCtrlClass     = nullptr;
@@ -43,14 +37,12 @@ static void*  g_lockedTarget      = nullptr;
 static double g_lockedSince       = 0.0;
 static int    g_lockTicks         = 0;
 static float  g_lockedScreenD     = FLT_MAX;
-static float  g_lockedScore       = FLT_MAX;
 
 // ---- write bounds ----------------------------------------------
 static const float AIM_MAX_YAW_STEP   =   8.0f;
-static const float AIM_MAX_PITCH_STEP =  6.0f;
+static const float AIM_MAX_PITCH_STEP =   6.0f;
 static const int   AIM_LOCK_MIN_TICKS =  10;
 static const float AIM_SWITCH_HYST_PX =  60.0f;
-static const float AIM_DEADZONE_PX    =   0.75f;
 
 // ---- ClearDegreesDelta hook ------------------------------------
 //
@@ -67,18 +59,15 @@ static const float AIM_DEADZONE_PX    =   0.75f;
 typedef void (*t_ClearDegreesDelta)(void* self, void* methodInfo);
 static t_ClearDegreesDelta g_orig_ClearDegreesDelta = nullptr;
 static void*  g_hookedSensor     = nullptr;
-static void*  g_pendingSensor    = nullptr;
 static float  g_pendingYaw       = 0.0f;
 static float  g_pendingPitch     = 0.0f;
 static bool   g_pendingFresh     = false;
 static int    g_hookFireCount    = 0;
 
 extern "C" void hook_ClearDegreesDelta(void* self, void* methodInfo) {
-    if (g_orig_ClearDegreesDelta) g_orig_ClearDegreesDelta(self, methodInfo);
+    g_orig_ClearDegreesDelta(self, methodInfo);
 
-    // A sensor can be replaced during respawn or camera transitions. Never
-    // apply a delta calculated for a previous sensor to the new object.
-    if (g_pendingFresh && self == g_pendingSensor && self == g_hookedSensor) {
+    if (g_pendingFresh) {
         uint8_t* p = (uint8_t*)self;
         *(float*)(p + 0x38) = g_pendingYaw;
         *(float*)(p + 0x3C) = g_pendingPitch;
@@ -89,8 +78,6 @@ extern "C" void hook_ClearDegreesDelta(void* self, void* methodInfo) {
             RAVEN_LOG("aim-hook: ClearDegreesDelta fired n=%d self=%p wrote=(%.3f,%.3f)",
                       g_hookFireCount, self, g_pendingYaw, g_pendingPitch);
         }
-    } else if (self != g_pendingSensor) {
-        g_pendingFresh = false;
     }
 }
 
@@ -101,50 +88,6 @@ static inline bool ptrOk(void* p) {
 
 static inline float clampf(float v, float lo, float hi) {
     return v < lo ? lo : (v > hi ? hi : v);
-}
-
-static void applyPrediction(void* target, Vec3 currentPos, Vec3* aimPoint) {
-    static void* previousTarget = nullptr;
-    static Vec3 previousPos = {0, 0, 0};
-    static double previousTime = 0.0;
-    double now = CACurrentMediaTime();
-    double dt = now - previousTime;
-    if (!RavenSettings::aimPrediction || !target || dt <= 0.0 || dt > 0.25 || target != previousTarget) {
-        previousTarget = target;
-        previousPos = currentPos;
-        previousTime = now;
-        return;
-    }
-    Vec3 velocity = {
-        (currentPos.x - previousPos.x) / (float)dt,
-        (currentPos.y - previousPos.y) / (float)dt,
-        (currentPos.z - previousPos.z) / (float)dt,
-    };
-    float speed = sqrtf(velocity.x * velocity.x + velocity.y * velocity.y + velocity.z * velocity.z);
-    if (isfinite(speed) && speed > 0.01f) {
-        float cap = 35.0f;
-        if (speed > cap) {
-            float scale = cap / speed;
-            velocity.x *= scale; velocity.y *= scale; velocity.z *= scale;
-        }
-        float lead = clampf(0.045f + speed * 0.0015f, 0.045f, 0.12f);
-        aimPoint->x += velocity.x * lead;
-        aimPoint->y += velocity.y * lead;
-        aimPoint->z += velocity.z * lead;
-    }
-    previousTarget = target;
-    previousPos = currentPos;
-    previousTime = now;
-}
-
-static float smoothingMultiplier(float smooth, int curve) {
-    float base = 1.0f / MAX(1.0f, smooth);
-    switch (curve) {
-        case 0: return base;                         // linear
-        case 2: return 1.0f - powf(1.0f - base, 2.0f); // ease-out
-        case 3: return 1.0f;                         // instant
-        default: return powf(base, 0.72f);           // exponential
-    }
 }
 
 static void* resolveInherited(void* cls, const char* name, int argc) {
@@ -161,26 +104,18 @@ static void resolveHandles(void) {
     if (!img) return;
 
     g_playerRootClass   = IL2CPP::klass(GameData::kNsPlayer,     GameData::kPlayerRootClass);
-    g_playerHealthClass = IL2CPP::klass(GameData::kNsPlayer,     GameData::kPlayerHealthClass);
     g_playerMobViewClass= IL2CPP::klass(GameData::kNsPlayer,     GameData::kPlayerMobClass);
     g_cameraCtrlClass   = IL2CPP::klass(GameData::kNsCameraCtrl, GameData::kCameraCtrlClass);
 
     if (g_playerRootClass) {
         g_getTeamId        = IL2CPP::resolveMethod(g_playerRootClass, GameData::kMGetTeamId, 0);
         g_getActiveMobView = IL2CPP::resolveMethod(g_playerRootClass, GameData::kMGetActiveMobView, 0);
-        g_getIsVisible     = IL2CPP::resolveMethod(g_playerRootClass, GameData::kMGetIsVisible, 0);
         g_getMainCamera    = IL2CPP::resolveMethod(g_playerRootClass, GameData::kMGetMainCamera, 0);
         g_getRootTransform = IL2CPP::resolveMethod(g_playerRootClass, GameData::kMGetTransform, 0);
     }
-    if (g_playerHealthClass) {
-        g_getIsDead   = IL2CPP::resolveMethod(g_playerHealthClass, GameData::kMGetIsDead, 0);
-        g_getIsDowned = IL2CPP::resolveMethod(g_playerHealthClass, GameData::kMGetIsDowned, 0);
-    }
     if (g_playerMobViewClass) {
         g_getHeadTransform  = IL2CPP::resolveMethod(g_playerMobViewClass, GameData::kMGetHeadTransform, 0);
-        g_getNeckTransform  = IL2CPP::resolveMethod(g_playerMobViewClass, GameData::kMGetNeckTransform, 0);
         g_getChestTransform = IL2CPP::resolveMethod(g_playerMobViewClass, GameData::kMGetChestTransform, 0);
-        g_getPelvisTransform= IL2CPP::resolveMethod(g_playerMobViewClass, GameData::kMGetPelvisTransform, 0);
     }
     if (g_cameraCtrlClass) {
         g_getRenderCamera  = IL2CPP::resolveMethod(g_cameraCtrlClass, GameData::kMGetRenderCamera, 0);
@@ -244,29 +179,6 @@ static int32_t invokeInt(void* method, void* obj) {
     void* r = IL2CPP::invokeMethod(method, obj, nullptr);
     return r ? *(int32_t*)((uint8_t*)r + 0x10) : 0;
 }
-static bool invokeBool(void* method, void* obj) {
-    if (!method || !obj) return false;
-    void* r = IL2CPP::invokeMethod(method, obj, nullptr);
-    return r ? *(bool*)((uint8_t*)r + 0x10) : false;
-}
-
-static inline uint8_t readU8(void* obj, uint32_t off) {
-    return obj ? *(uint8_t*)((uint8_t*)obj + off) : 0;
-}
-
-static bool targetIsAlive(void* player) {
-    if (!ptrOk(player)) return false;
-    void* health = readPtr(player, GameData::PlayerRoot::PlayerHealth);
-    if (ptrOk(health)) {
-        if (g_getIsDead && invokeBool(g_getIsDead, health)) return false;
-        if (g_getIsDowned && invokeBool(g_getIsDowned, health)) return false;
-    }
-    // IsRealPlayer is still marked unverified in GameData.h. Read it only for
-    // diagnostics; using it as a hard gate would recreate the phantom-target
-    // bug if the offset is wrong on a different build.
-    return true;
-}
-
 
 static bool readTransformPos(void* t, Vec3* out) {
     if (!t) return false;
@@ -344,15 +256,9 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera, Vec3
 
     CGSize scr = [UIScreen mainScreen].bounds.size;
     CGPoint center = CGPointMake(scr.width / 2.0, scr.height / 2.0);
-    float fovPx = (MAX(1.0f, RavenSettings::aimFov) / 90.0f) * (scr.width / 2.0f);
+    float fovPx = (RavenSettings::aimFov / 90.0f) * (scr.width / 2.0f);
 
-    if (g_lockedTarget && !targetIsAlive(g_lockedTarget)) {
-        g_lockedTarget = nullptr;
-        g_lockedSince = 0.0;
-        g_lockTicks = 0;
-        g_lockedScreenD = FLT_MAX;
-        g_lockedScore = FLT_MAX;
-    } else if (g_lockedTarget) {
+    if (g_lockedTarget) {
         bool stillPresent = false;
         for (int i = 0; i < count; i++) {
             if (items[i] == g_lockedTarget) { stillPresent = true; break; }
@@ -362,13 +268,11 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera, Vec3
             g_lockedSince = 0.0;
             g_lockTicks = 0;
             g_lockedScreenD = FLT_MAX;
-            g_lockedScore = FLT_MAX;
         }
     }
 
     void* best = nullptr;
     float bestDist = FLT_MAX;
-    float bestScore = FLT_MAX;
     Vec3 bestAim = {0,0,0};
     Vec3 lockedAim = {0,0,0};
     bool lockedVisible = false;
@@ -380,10 +284,8 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera, Vec3
         void* p = items[i];
         if (!p || p == localPlayer) continue;
         if (!ptrOk(p)) continue;
-        if (!targetIsAlive(p)) continue;
         int team = g_getTeamId ? invokeInt(g_getTeamId, p) : 0;
         if (team != 0 && team == localTeam) continue;
-        if (RavenSettings::aimVisCheck && g_getIsVisible && !invokeBool(g_getIsVisible, p)) continue;
 
         void* targetTransform = g_getRootTransform ? invokePtr(g_getRootTransform, p) : nullptr;
         Vec3 targetPos = {0,0,0};
@@ -394,19 +296,14 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera, Vec3
         if (!ptrOk(mobView)) mobView = nullptr;
         void* bone = nullptr;
         if (mobView) {
-            if (RavenSettings::aimBone == 0)
+            if (RavenSettings::aimBone == 0) {
                 bone = g_getHeadTransform ? invokePtr(g_getHeadTransform, mobView) : nullptr;
-            else if (RavenSettings::aimBone == 1)
-                bone = g_getNeckTransform ? invokePtr(g_getNeckTransform, mobView) : nullptr;
-            else if (RavenSettings::aimBone == 2)
+            } else {
                 bone = g_getChestTransform ? invokePtr(g_getChestTransform, mobView) : nullptr;
-            else
-                bone = g_getPelvisTransform ? invokePtr(g_getPelvisTransform, mobView) : nullptr;
+            }
         }
         if (!ptrOk(bone) || !readTransformPos(bone, &bonePos)) {
-            static const float fallbackHeight[] = { 1.65f, 1.42f, 1.15f, 0.85f };
-            int boneIndex = MAX(0, MIN(3, RavenSettings::aimBone));
-            bonePos.y += fallbackHeight[boneIndex];
+            bonePos.y += (RavenSettings::aimBone == 0) ? 1.65f : 1.15f;
         }
         Vec3 delta = {targetPos.x - localPos.x, targetPos.y - localPos.y, targetPos.z - localPos.z};
         float worldDistance = sqrtf(delta.x*delta.x + delta.y*delta.y + delta.z*delta.z);
@@ -416,18 +313,9 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera, Vec3
         if (!worldToScreen(camera, bonePos, scr, &screen)) continue;
 
         float d = hypotf(screen.x - center.x, screen.y - center.y);
-        if (d > fovPx || (d < AIM_DEADZONE_PX && p == g_lockedTarget)) continue;
+        if (d > fovPx) continue;
         if (p == g_lockedTarget) { lockedAim = bonePos; lockedVisible = true; g_lockedScreenD = d; }
-        float score = d;
-        if (RavenSettings::aimPriority == 1) score = worldDistance;
-        else if (RavenSettings::aimPriority == 2) score = d + worldDistance * 0.35f;
-        else if (RavenSettings::aimPriority >= 3) score = worldDistance + d * 0.05f;
-        if (score < bestScore) {
-            bestScore = score;
-            bestDist = d;
-            best = p;
-            bestAim = bonePos;
-        }
+        if (d < bestDist) { bestDist = d; best = p; bestAim = bonePos; }
     }
 
     double now = CACurrentMediaTime();
@@ -436,14 +324,12 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera, Vec3
     if (g_lockedTarget && lockedVisible && switchDelay > 0.0 &&
         (now - g_lockedSince) < switchDelay) {
         *outAimPoint = lockedAim;
-        applyPrediction(g_lockedTarget, lockedAim, outAimPoint);
         g_lockTicks++;
         return g_lockedTarget;
     }
 
     if (g_lockedTarget && lockedVisible && g_lockTicks < AIM_LOCK_MIN_TICKS) {
         *outAimPoint = lockedAim;
-        applyPrediction(g_lockedTarget, lockedAim, outAimPoint);
         g_lockTicks++;
         return g_lockedTarget;
     }
@@ -451,33 +337,28 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera, Vec3
     if (best) {
         if (best == g_lockedTarget) {
             g_lockedScreenD = bestDist;
-            g_lockedScore = bestScore;
             g_lockTicks++;
         } else {
             bool canSwitch = (g_lockedTarget == nullptr)
-                           || (bestScore + AIM_SWITCH_HYST_PX < g_lockedScore);
+                           || (bestDist + AIM_SWITCH_HYST_PX < g_lockedScreenD);
             if (canSwitch) {
                 g_lockedTarget  = best;
                 g_lockedSince   = now;
                 g_lockTicks     = 0;
                 g_lockedScreenD = bestDist;
-                g_lockedScore   = bestScore;
             } else {
                 if (lockedVisible) {
                     *outAimPoint = lockedAim;
-                    applyPrediction(g_lockedTarget, lockedAim, outAimPoint);
                     g_lockTicks++;
                     return g_lockedTarget;
                 }
             }
         }
         *outAimPoint = bestAim;
-        applyPrediction(best, bestAim, outAimPoint);
     } else if (!lockedVisible) {
         g_lockedTarget = nullptr;
         g_lockTicks = 0;
         g_lockedScreenD = FLT_MAX;
-        g_lockedScore = FLT_MAX;
     }
     return best;
 }
@@ -489,12 +370,10 @@ void setEnabled(bool on) {
         g_lockedSince = 0.0;
         g_lockTicks = 0;
         g_lockedScreenD = FLT_MAX;
-        g_lockedScore = FLT_MAX;
         g_pendingFresh = false;
         g_pendingYaw = 0.0f;
         g_pendingPitch = 0.0f;
         g_hookedSensor = nullptr;
-        g_pendingSensor = nullptr;
     }
 }
 
@@ -557,11 +436,6 @@ void tick() {
     void* target = findBestTarget(localPlayer, localTeam, camera, &aimPoint);
     if (!target) return;
 
-    static double s_lastAimWrite = 0.0;
-    double aimNow = CACurrentMediaTime();
-    double aimDelay = MAX(0.0, (double)RavenSettings::aimDelay) / 1000.0;
-    if (aimDelay > 0.0 && aimNow - s_lastAimWrite < aimDelay) return;
-
     CGSize scr = [UIScreen mainScreen].bounds.size;
     CGPoint screen;
     if (!worldToScreen(camera, aimPoint, scr, &screen)) return;
@@ -578,9 +452,8 @@ void tick() {
     float d_pitch = -dy_px * degPerPxY;
 
     float smooth = MAX(1.0f, RavenSettings::aimSmooth);
-    float curve = smoothingMultiplier(smooth, RavenSettings::aimCurve);
-    d_yaw   *= curve;
-    d_pitch *= curve;
+    d_yaw   *= (1.0f / smooth);
+    d_pitch *= (1.0f / smooth);
 
     d_yaw   = clampf(d_yaw,   -AIM_MAX_YAW_STEP,   AIM_MAX_YAW_STEP);
     d_pitch = clampf(d_pitch, -AIM_MAX_PITCH_STEP, AIM_MAX_PITCH_STEP);
@@ -593,8 +466,6 @@ void tick() {
         g_pendingPitch = d_pitch;
         g_pendingFresh = true;
         g_hookedSensor = rotationSensor;
-        g_pendingSensor = rotationSensor;
-        s_lastAimWrite = aimNow;
     } else {
         g_pendingFresh = false;
     }
