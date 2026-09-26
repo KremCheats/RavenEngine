@@ -12,8 +12,12 @@
 namespace RavenAimbot {
 
 static void* g_playerRootClass     = nullptr;
+static void* g_playerHealthClass   = nullptr;
 static void* g_playerMobViewClass  = nullptr;
 static void* g_getTeamId           = nullptr;
+static void* g_getIsDead           = nullptr;
+static void* g_getIsDowned         = nullptr;
+static void* g_getHealth           = nullptr;
 static void* g_getActiveMobView    = nullptr;
 static void* g_getMainCamera       = nullptr;
 static void* g_getHeadTransform    = nullptr;
@@ -47,17 +51,18 @@ static float  g_lockedScreenD     = FLT_MAX;
 // 90.000 / -119.959 in the same tick). We never let a write cross.
 static const float AIM_RAW_YAW_LIMIT  = 180.0f;  // reject impossible yaw outliers
 static const float AIM_RAW_PITCH_LIMIT = 90.0f;  // reject values beyond legal pitch
-static const float AIM_ASSIST_GAIN    =   0.35f;  // preserve manual camera control
+static const float AIM_ASSIST_GAIN    =   0.60f;  // responsive correction without dragging the camera
 static const float AIM_MAX_YAW_STEP   =   3.0f;   // deg / tick
 static const float AIM_MAX_PITCH_STEP =   2.5f;   // deg / tick
 static const int   AIM_LOCK_MIN_TICKS =  10;
 static const float AIM_SWITCH_HYST_PX =  60.0f;
+static const float AIM_DEADZONE_PX    =   1.25f;
 
 // ---- reticle calibration ---------------------------------------
 // Pixel offsets applied to the assumed reticle position. Positive X
 // moves the reticle right; positive Y moves it down. Tune these from
 // the settled screen/ret values in the aim-apply log below.
-static const float AIM_RETICLE_OFFSET_X = 18.0f;
+static const float AIM_RETICLE_OFFSET_X = 0.0f;
 static const float AIM_RETICLE_OFFSET_Y = 0.0f;
 
 static inline bool ptrOk(void* p) {
@@ -88,6 +93,7 @@ static void resolveHandles(void) {
     if (!img) return;
 
     g_playerRootClass   = IL2CPP::klass(GameData::kNsPlayer,     GameData::kPlayerRootClass);
+    g_playerHealthClass = IL2CPP::klass(GameData::kNsPlayer,     GameData::kPlayerHealthClass);
     g_playerMobViewClass= IL2CPP::klass(GameData::kNsPlayer,     GameData::kPlayerMobClass);
     g_cameraCtrlClass   = IL2CPP::klass(GameData::kNsCameraCtrl, GameData::kCameraCtrlClass);
 
@@ -96,6 +102,11 @@ static void resolveHandles(void) {
         g_getActiveMobView = IL2CPP::resolveMethod(g_playerRootClass, GameData::kMGetActiveMobView, 0);
         g_getMainCamera    = IL2CPP::resolveMethod(g_playerRootClass, GameData::kMGetMainCamera, 0);
         g_getRootTransform = IL2CPP::resolveMethod(g_playerRootClass, GameData::kMGetTransform, 0);
+    }
+    if (g_playerHealthClass) {
+        g_getHealth   = IL2CPP::resolveMethod(g_playerHealthClass, GameData::kMGetHealth, 0);
+        g_getIsDead   = IL2CPP::resolveMethod(g_playerHealthClass, GameData::kMGetIsDead, 0);
+        g_getIsDowned = IL2CPP::resolveMethod(g_playerHealthClass, GameData::kMGetIsDowned, 0);
     }
     if (g_playerMobViewClass) {
         g_getHeadTransform  = IL2CPP::resolveMethod(g_playerMobViewClass, GameData::kMGetHeadTransform, 0);
@@ -177,6 +188,12 @@ static int32_t invokeInt(void* method, void* obj) {
     return r ? *(int32_t*)((uint8_t*)r + 0x10) : 0;
 }
 
+static bool invokeBool(void* method, void* obj) {
+    if (!method || !obj) return false;
+    void* r = IL2CPP::invokeMethod(method, obj, nullptr);
+    return r ? *(bool*)((uint8_t*)r + 0x10) : false;
+}
+
 static bool readTransformPos(void* t, Vec3* out) {
     if (!t) return false;
     ensureTransformClass(t);
@@ -184,6 +201,21 @@ static bool readTransformPos(void* t, Vec3* out) {
     void* r = IL2CPP::invokeMethod(g_getPosition, t, nullptr);
     if (!r) return false;
     *out = *(Vec3*)((uint8_t*)r + 0x10);
+    return true;
+}
+
+static bool targetIsAlive(void* player) {
+    if (!player) return false;
+    void* health = readPtr(player, GameData::PlayerRoot::PlayerHealth);
+    if (!ptrOk(health)) return false;
+    if (g_getIsDead && invokeBool(g_getIsDead, health)) return false;
+    if (g_getIsDowned && invokeBool(g_getIsDowned, health)) return false;
+    if (g_getHealth) {
+        void* value = IL2CPP::invokeMethod(g_getHealth, health, nullptr);
+        if (!value) return false;
+        float hp = *(float*)((uint8_t*)value + 0x10);
+        if (!isfinite(hp) || hp <= 0.0f) return false;
+    }
     return true;
 }
 
@@ -297,6 +329,7 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera, Vec3
         void* p = items[i];
         if (!p || p == localPlayer) continue;
         if (!ptrOk(p)) continue;
+        if (!targetIsAlive(p)) continue;
         int team = g_getTeamId ? invokeInt(g_getTeamId, p) : 0;
         if (team != 0 && team == localTeam) continue;
 
@@ -464,6 +497,11 @@ void tick() {
     float retY = scr.height * 0.5f + AIM_RETICLE_OFFSET_Y;
     float dx_px = screen.x - retX;
     float dy_px = screen.y - retY;
+
+    if (hypotf(dx_px, dy_px) <= AIM_DEADZONE_PX) {
+        g_lockedScreenD = hypotf(dx_px, dy_px);
+        return;
+    }
 
     float fov = MAX(10.0f, RavenSettings::aimFov);
     float halfFovDeg = fov * 0.5f;

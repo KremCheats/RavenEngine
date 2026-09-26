@@ -1680,8 +1680,6 @@ static UIColor* espPaletteColor(int index) {
             L.bounds      = normalized;
         }
 
-        self.window.hidden = !RavenSettings::espEnabled;
-
         static bool logged = false;
         if (!logged) {
             RAVEN_LOG("esp-scene: scene=%.0fx%.0f win=%@ boxes=%@ root=%@",
@@ -1809,6 +1807,7 @@ static UIColor* espPaletteColor(int index) {
     if (!self.window) [self attach];
     [self attachToScene];
     self.window.hidden = NO;
+    self.guides.hidden = !guidesEnabled;
     [self begin];
 
     CGSize guideScreen = self.window.bounds.size;
