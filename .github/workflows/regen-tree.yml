@@ -1,6 +1,6 @@
 # file: .github/workflows/regen-tree.yml
 # regenerates the Theos tree from write_tree.py, patches Src/Aimbot.mm
-# with the root-level Aimbot_fixed.mm, verifies the marker, commits.
+# with the root-level aimbot_fixed.mm, verifies the marker, commits.
 # only line that matters for the aimbot patch: the grep -q string.
 # if your step names differ, swap them — the grep string is the contract.
 
@@ -9,7 +9,7 @@ name: Regen Theos Tree
 on:
   push:
     paths:
-      - 'Aimbot_fixed.mm'
+      - 'aimbot_fixed.mm'
       - 'write_tree.py'
       - 'config.json'
       - 'sync_offsets.py'
@@ -35,7 +35,7 @@ jobs:
         run: python3 write_tree.py
 
       - name: Patch Src/Aimbot.mm
-        run: cp Aimbot_fixed.mm Src/Aimbot.mm
+        run: cp aimbot_fixed.mm Src/Aimbot.mm
 
       - name: Verify marker present
         run: grep -q "Root cause fix" Src/Aimbot.mm
