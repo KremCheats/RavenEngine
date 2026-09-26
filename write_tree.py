@@ -81,7 +81,7 @@ static void raven_entry(void) {
             if (!valid) {
                 RavenSettings::aimEnabled = false;
                 RavenSettings::espEnabled = false;
-                RAVEN_LOG("license: rejected reason=%{public}@", reason ?: @"unknown");
+                RAVEN_LOG("license: rejected reason=%@", reason ?: @"unknown");
             } else {
                 RAVEN_LOG("license: validated");
             }
