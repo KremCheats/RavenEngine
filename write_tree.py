@@ -1805,10 +1805,22 @@ static UIColor* espPaletteColor(int index) {
 
 - (void)render {
     BOOL guidesEnabled = RavenSettings::aimShowCircle || RavenSettings::visCrosshair || RavenSettings::visFovCircle;
-    if (!RavenSettings::espEnabled && !guidesEnabled) return;
+    if (!RavenSettings::espEnabled && !guidesEnabled) {
+        // Clear stale paths and hide the overlay even when there is no
+        // guide/ESP work left for the frame loop to request.
+        if (self.window) {
+            [self begin];
+            self.window.hidden = YES;
+        }
+        return;
+    }
     if (!self.window) [self attach];
     [self attachToScene];
     self.window.hidden = NO;
+    self.guides.hidden = !guidesEnabled;
+    self.boxes.hidden = !RavenSettings::espEnabled;
+    self.lines.hidden = !RavenSettings::espEnabled;
+    self.labels.hidden = !RavenSettings::espEnabled;
     [self begin];
 
     CGSize guideScreen = self.window.bounds.size;
@@ -1840,6 +1852,7 @@ static UIColor* espPaletteColor(int index) {
         }
         self.guides.lineWidth = t;
     }
+    if (!RavenSettings::espEnabled) return;
     resolveHandles();
 
     RAVEN_LOG("esp: pc=%p local=%p list=%p cam=%p tf=%p",
@@ -3683,9 +3696,10 @@ static void forceLandscape(void) {
         playerRefreshAt = tickNow;
         [self reloadActiveTab];
     }
-    if (RavenSettings::espEnabled || RavenSettings::aimShowCircle ||
-        RavenSettings::visFovCircle || RavenSettings::visCrosshair)
-        [[RavenESP shared] render];
+    // Always run the renderer once per frame so a switch-off can clear and
+    // hide the previous overlay immediately; render() is otherwise a cheap
+    // no-op when no guide or ESP feature is enabled.
+    [[RavenESP shared] render];
     if (RavenSettings::aimEnabled) RavenAimbot::tick();
 }
 

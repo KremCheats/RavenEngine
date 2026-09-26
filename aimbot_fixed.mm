@@ -12,8 +12,12 @@
 namespace RavenAimbot {
 
 static void* g_playerRootClass     = nullptr;
+static void* g_playerHealthClass   = nullptr;
 static void* g_playerMobViewClass  = nullptr;
 static void* g_getTeamId           = nullptr;
+static void* g_getIsDead           = nullptr;
+static void* g_getIsDowned         = nullptr;
+static void* g_getHealth           = nullptr;
 static void* g_getActiveMobView    = nullptr;
 static void* g_getMainCamera       = nullptr;
 static void* g_getHeadTransform    = nullptr;
@@ -25,10 +29,10 @@ static void* g_getRenderCamera     = nullptr;
 static void* g_cameraClass         = nullptr;
 static void* g_worldToScreen       = nullptr;
 static bool  g_worldToScreenTwoArg = false;
+static bool  g_worldToViewport     = false;
 static void* g_getRootTransform    = nullptr;
 static void* g_displayRotationClass = nullptr;
-static void* g_rotationDelta        = nullptr;
-static void* g_updateRotationDelta  = nullptr;
+static void* g_updateGyroInput      = nullptr;
 static bool  g_resolved            = false;
 
 // ---- lock state -------------------------------------------------
@@ -44,12 +48,19 @@ static float  g_lockedScreenD     = FLT_MAX;
 // shows a 500+ value on read. That is the observed snap-up
 // (gyro pitch 585.3184 -> camera clamps to +90 -> yaw jumps to
 // 90.000 / -119.959 in the same tick). We never let a write cross.
-static const float AIM_PITCH_MIN      = -89.0f;
-static const float AIM_PITCH_MAX      =  89.0f;
-static const float AIM_MAX_YAW_STEP   =   8.0f;   // deg / tick
-static const float AIM_MAX_PITCH_STEP =   6.0f;   // deg / tick
+static const float AIM_ASSIST_GAIN    =   0.60f;  // responsive correction without dragging the camera
+static const float AIM_MAX_YAW_STEP   =   3.0f;   // deg / tick
+static const float AIM_MAX_PITCH_STEP =   2.5f;   // deg / tick
 static const int   AIM_LOCK_MIN_TICKS =  10;
 static const float AIM_SWITCH_HYST_PX =  60.0f;
+static const float AIM_DEADZONE_PX    =   1.25f;
+
+// ---- reticle calibration ---------------------------------------
+// Pixel offsets applied to the assumed reticle position. Positive X
+// moves the reticle right; positive Y moves it down. Tune these from
+// the settled screen/ret values in the aim-apply log below.
+static const float AIM_RETICLE_OFFSET_X = 0.0f;
+static const float AIM_RETICLE_OFFSET_Y = 0.0f;
 
 static inline bool ptrOk(void* p) {
     uintptr_t v = (uintptr_t)p;
@@ -79,6 +90,7 @@ static void resolveHandles(void) {
     if (!img) return;
 
     g_playerRootClass   = IL2CPP::klass(GameData::kNsPlayer,     GameData::kPlayerRootClass);
+    g_playerHealthClass = IL2CPP::klass(GameData::kNsPlayer,     GameData::kPlayerHealthClass);
     g_playerMobViewClass= IL2CPP::klass(GameData::kNsPlayer,     GameData::kPlayerMobClass);
     g_cameraCtrlClass   = IL2CPP::klass(GameData::kNsCameraCtrl, GameData::kCameraCtrlClass);
 
@@ -87,6 +99,11 @@ static void resolveHandles(void) {
         g_getActiveMobView = IL2CPP::resolveMethod(g_playerRootClass, GameData::kMGetActiveMobView, 0);
         g_getMainCamera    = IL2CPP::resolveMethod(g_playerRootClass, GameData::kMGetMainCamera, 0);
         g_getRootTransform = IL2CPP::resolveMethod(g_playerRootClass, GameData::kMGetTransform, 0);
+    }
+    if (g_playerHealthClass) {
+        g_getHealth   = IL2CPP::resolveMethod(g_playerHealthClass, GameData::kMGetHealth, 0);
+        g_getIsDead   = IL2CPP::resolveMethod(g_playerHealthClass, GameData::kMGetIsDead, 0);
+        g_getIsDowned = IL2CPP::resolveMethod(g_playerHealthClass, GameData::kMGetIsDowned, 0);
     }
     if (g_playerMobViewClass) {
         g_getHeadTransform  = IL2CPP::resolveMethod(g_playerMobViewClass, GameData::kMGetHeadTransform, 0);
@@ -97,8 +114,7 @@ static void resolveHandles(void) {
     }
     g_displayRotationClass = IL2CPP::klass("CombatMaster.Battle.InputControllers", "DisplayRotationSensor");
     if (g_displayRotationClass) {
-        g_rotationDelta       = IL2CPP::resolveMethod(g_displayRotationClass, "get_DegreesDelta", 0);
-        g_updateRotationDelta = IL2CPP::resolveMethod(g_displayRotationClass, "get_UpdateDegreesDelta", 0);
+        g_updateGyroInput     = IL2CPP::resolveMethod(g_displayRotationClass, "UpdateGyroAdditiveInput", 1);
 
         // --- method enumeration probe (kept for next diag pass) ---
         typedef void* (*t_iter)(void*, void**);
@@ -138,11 +154,20 @@ static void ensureCameraClass(void* obj) {
     if (!g_cameraClass)
         g_cameraClass = IL2CPP::klass("UnityEngine", "Camera");
     if (g_cameraClass) {
-        g_worldToScreen = IL2CPP::resolveMethod(g_cameraClass, GameData::kMWorldToScreen, 1);
+        // Match the ESP path: normalized viewport coordinates are already in
+        // the overlay's coordinate space after multiplying by scr. The old
+        // aim path used WorldToScreenPoint plus nativeBounds scaling, which
+        // can disagree with the accurate ESP boxes on landscape iOS.
+        g_worldToScreen = IL2CPP::resolveMethod(g_cameraClass, "WorldToViewportPoint", 1);
+        g_worldToViewport = (g_worldToScreen != nullptr);
+        if (!g_worldToScreen)
+            g_worldToScreen = IL2CPP::resolveMethod(g_cameraClass, GameData::kMWorldToScreen, 1);
         if (!g_worldToScreen) {
             g_worldToScreen = IL2CPP::resolveMethod(g_cameraClass, GameData::kMWorldToScreen, 2);
             g_worldToScreenTwoArg = (g_worldToScreen != nullptr);
         }
+        if (g_worldToScreen)
+            RAVEN_LOG("aim-w2s: mode=%s method=%p", g_worldToViewport ? "viewport" : "pixels", g_worldToScreen);
     }
 }
 
@@ -159,6 +184,12 @@ static int32_t invokeInt(void* method, void* obj) {
     return r ? *(int32_t*)((uint8_t*)r + 0x10) : 0;
 }
 
+static bool invokeBool(void* method, void* obj) {
+    if (!method || !obj) return false;
+    void* r = IL2CPP::invokeMethod(method, obj, nullptr);
+    return r ? *(bool*)((uint8_t*)r + 0x10) : false;
+}
+
 static bool readTransformPos(void* t, Vec3* out) {
     if (!t) return false;
     ensureTransformClass(t);
@@ -166,6 +197,21 @@ static bool readTransformPos(void* t, Vec3* out) {
     void* r = IL2CPP::invokeMethod(g_getPosition, t, nullptr);
     if (!r) return false;
     *out = *(Vec3*)((uint8_t*)r + 0x10);
+    return true;
+}
+
+static bool targetIsAlive(void* player) {
+    if (!player) return false;
+    void* health = readPtr(player, GameData::PlayerRoot::PlayerHealth);
+    if (!ptrOk(health)) return false;
+    if (g_getIsDead && invokeBool(g_getIsDead, health)) return false;
+    if (g_getIsDowned && invokeBool(g_getIsDowned, health)) return false;
+    if (g_getHealth) {
+        void* value = IL2CPP::invokeMethod(g_getHealth, health, nullptr);
+        if (!value) return false;
+        float hp = *(float*)((uint8_t*)value + 0x10);
+        if (!isfinite(hp) || hp <= 0.0f) return false;
+    }
     return true;
 }
 
@@ -184,16 +230,21 @@ static bool worldToScreen(void* cam, Vec3 w, CGSize scr, CGPoint* out) {
     if (sp.z < 0.01f) return false;
     if (!(sp.x == sp.x) || !(sp.y == sp.y) || !(sp.z == sp.z)) return false;
     if (fabsf(sp.x) > 1.0e6f || fabsf(sp.y) > 1.0e6f) return false;
-    CGSize native = [UIScreen mainScreen].nativeBounds.size;
-    CGFloat nativeW = MAX(native.width, native.height);
-    CGFloat nativeH = MIN(native.width, native.height);
-    if (nativeW < 1.0 || nativeH < 1.0) {
-        CGFloat scale = MAX(1.0, [UIScreen mainScreen].scale);
-        nativeW = scr.width * scale;
-        nativeH = scr.height * scale;
+    if (g_worldToViewport) {
+        out->x = sp.x * scr.width;
+        out->y = scr.height - (sp.y * scr.height);
+    } else {
+        CGSize native = [UIScreen mainScreen].nativeBounds.size;
+        CGFloat nativeW = MAX(native.width, native.height);
+        CGFloat nativeH = MIN(native.width, native.height);
+        if (nativeW < 1.0 || nativeH < 1.0) {
+            CGFloat scale = MAX(1.0, [UIScreen mainScreen].scale);
+            nativeW = scr.width * scale;
+            nativeH = scr.height * scale;
+        }
+        out->x = (sp.x / nativeW) * scr.width;
+        out->y = scr.height - ((sp.y / nativeH) * scr.height);
     }
-    out->x = (sp.x / nativeW) * scr.width;
-    out->y = scr.height - ((sp.y / nativeH) * scr.height);
     return (out->x >= -100 && out->x <= scr.width + 100 &&
             out->y >= -100 && out->y <= scr.height + 100);
 }
@@ -274,6 +325,7 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera, Vec3
         void* p = items[i];
         if (!p || p == localPlayer) continue;
         if (!ptrOk(p)) continue;
+        if (!targetIsAlive(p)) continue;
         int team = g_getTeamId ? invokeInt(g_getTeamId, p) : 0;
         if (team != 0 && team == localTeam) continue;
 
@@ -437,8 +489,15 @@ void tick() {
     CGPoint screen;
     if (!worldToScreen(camera, aimPoint, scr, &screen)) return;
 
-    float dx_px = screen.x - scr.width * 0.5f;
-    float dy_px = screen.y - scr.height * 0.5f;
+    float retX = scr.width  * 0.5f + AIM_RETICLE_OFFSET_X;
+    float retY = scr.height * 0.5f + AIM_RETICLE_OFFSET_Y;
+    float dx_px = screen.x - retX;
+    float dy_px = screen.y - retY;
+
+    if (hypotf(dx_px, dy_px) <= AIM_DEADZONE_PX) {
+        g_lockedScreenD = hypotf(dx_px, dy_px);
+        return;
+    }
 
     float fov = MAX(10.0f, RavenSettings::aimFov);
     float halfFovDeg = fov * 0.5f;
@@ -449,65 +508,38 @@ void tick() {
     float d_pitch = -dy_px * degPerPxY;
 
     float smooth = MAX(1.0f, RavenSettings::aimSmooth);
-    d_yaw   *= (1.0f / smooth);
-    d_pitch *= (1.0f / smooth);
+    d_yaw   *= (AIM_ASSIST_GAIN / smooth);
+    d_pitch *= (AIM_ASSIST_GAIN / smooth);
 
     // Per-tick step clamp. Small enough that even an unnormalized
     // input can't jump the game's clamp in one frame.
     d_yaw   = clampf(d_yaw,   -AIM_MAX_YAW_STEP,   AIM_MAX_YAW_STEP);
     d_pitch = clampf(d_pitch, -AIM_MAX_PITCH_STEP, AIM_MAX_PITCH_STEP);
 
-    // ---- Write delta to sensor field ----
-    //
-    //   +0x38  yaw   (deg)   legal range wraps at ±180
-    //   +0x3C  pitch (deg)   legal range ±90  (game clamps at ±90)
-    //
-    // Snap-up root cause: prior code did `*(p+0x3C) = pre38p + d_pitch`
-    // reading pre38p raw. If the game had already left a >90 value
-    // there from a previous unnormalized write (or from a sensor spike),
-    // we compounded it. Next frame the game read 585, clamped to 90,
-    // dumped the residual into yaw, and the camera snapped.
-    //
-    // Fix: normalize whatever the game left behind INTO the legal
-    // range BEFORE we use it as a base. Then step-clamp, add, and
-    // re-normalize on write. The value we leave behind is always
-    // inside ±180 yaw / ±89 pitch no matter what came in.
+    // ---- Additive gyro assist -----------------------------------
+    // Feed the game a small additive correction through its public
+    // DisplayRotationSensor path. Never overwrite private rotation fields:
+    // doing so fights the player's touch/gyro input and can leave the
+    // camera pointed at the sky after the feature is disabled.
     void* inputController = readPtr(localPlayer, 0xE8);
     void* rotationSensor = ptrOk(inputController) ? readPtr(inputController, 0x168) : nullptr;
 
     bool applied = false;
-    float pre38y = 0, pre38p = 0, post38y = 0, post38p = 0;
-    if (ptrOk(rotationSensor)) {
-        uint8_t* p = (uint8_t*)rotationSensor;
-        float rawY = *(float*)(p + 0x38);
-        float rawP = *(float*)(p + 0x3C);
-        pre38y = rawY;
-        pre38p = rawP;
-
-        if (isfinite(rawY) && isfinite(rawP)) {
-            // 1. normalize incoming values into legal range
-            float baseY = wrap180f(rawY);
-            float baseP = clampf(rawP, AIM_PITCH_MIN, AIM_PITCH_MAX);
-
-            // 2. apply the already step-clamped delta
-            float newY = wrap180f(baseY + d_yaw);
-            float newP = clampf(baseP + d_pitch, AIM_PITCH_MIN, AIM_PITCH_MAX);
-
-            // 3. re-verify before committing
-            if (isfinite(newY) && isfinite(newP)) {
-                *(float*)(p + 0x38) = newY;
-                *(float*)(p + 0x3C) = newP;
-                post38y = newY;
-                post38p = newP;
-                applied = true;
-            }
-        }
+    if (ptrOk(rotationSensor) && g_updateGyroInput &&
+        isfinite(d_yaw) && isfinite(d_pitch)) {
+        struct GyroInput { float x; float y; } gyro = { d_yaw, d_pitch };
+        void* args[1] = { &gyro };
+        IL2CPP::invokeMethod(g_updateGyroInput, rotationSensor, args);
+        applied = true;
     }
 
     static int applyLogCount = 0;
-    if (applyLogCount < 120) {
-        RAVEN_LOG("aim-apply: d=(%.2f,%.2f) applied=%d sensor=%p pre=(%.3f,%.3f) post=(%.3f,%.3f)",
-                  d_yaw, d_pitch, applied, rotationSensor, pre38y, pre38p, post38y, post38p);
+    if (applyLogCount < 1000) {
+        RAVEN_LOG("aim-apply: target=%p lockTicks=%d gyroMethod=%p screen=(%.2f,%.2f) ret=(%.2f,%.2f) pxerr=(%.2f,%.2f) d=(%.2f,%.2f) applied=%d sensor=%p",
+                  target, g_lockTicks,
+                  g_updateGyroInput,
+                  screen.x, screen.y, retX, retY, dx_px, dy_px,
+                  d_yaw, d_pitch, applied, rotationSensor);
         applyLogCount++;
     }
 }
