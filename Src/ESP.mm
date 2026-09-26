@@ -489,11 +489,16 @@ static UIColor* espPaletteColor(int index) {
     if (!RavenSettings::espEnabled) return;
     resolveHandles();
 
-    RAVEN_LOG("esp: pc=%p local=%p list=%p cam=%p tf=%p",
-              g_playerRootClass,
-              IL2CPP::readStaticFieldObject(g_playerRootClass, GameData::kFldMyPlayer),
-              IL2CPP::readStaticFieldObject(g_playerRootClass, GameData::kFldAllPlayers),
-              g_getMainCamera, g_playerTransformGetter);
+    static double espSigAt = 0.0;
+    double espSigNow = CACurrentMediaTime();
+    if (espSigNow - espSigAt >= 1.0) {
+        espSigAt = espSigNow;
+        RAVEN_LOG("esp: pc=%p local=%p list=%p cam=%p tf=%p",
+                  g_playerRootClass,
+                  IL2CPP::readStaticFieldObject(g_playerRootClass, GameData::kFldMyPlayer),
+                  IL2CPP::readStaticFieldObject(g_playerRootClass, GameData::kFldAllPlayers),
+                  g_getMainCamera, g_playerTransformGetter);
+    }
 
     static bool bounds_logged = false;
     if (!bounds_logged) {
@@ -539,9 +544,6 @@ static UIColor* espPaletteColor(int index) {
                   camera);
         cam_logged = true;
     }
-
-    RAVEN_LOG("esp2: w2s=%p camClass=%p transformGetter=%p cam=%p",
-              g_worldToScreen, g_cameraClass, g_playerTransformGetter, camera);
 
     Vec3 localPos = {0,0,0};
     void* localTransform = g_playerTransformGetter ? invokePtr(g_playerTransformGetter, localPlayer) : nullptr;

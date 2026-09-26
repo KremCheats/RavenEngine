@@ -146,6 +146,9 @@ static void forceLandscape(void) {
             if (hit) return hit;
         }
     }
+    // Never consume gameplay touches outside the menu controls. Returning
+    // nil here is required for the underlying game view to receive drag,
+    // look, and touch/gyro input normally.
     return nil;
 }
 @end
@@ -1516,11 +1519,24 @@ static void forceLandscape(void) {
         playerRefreshAt = tickNow;
         [self reloadActiveTab];
     }
-    // Always run the renderer once per frame so a switch-off can clear and
-    // hide the previous overlay immediately; render() is otherwise a cheap
-    // no-op when no guide or ESP feature is enabled.
-    [[RavenESP shared] render];
+    // Apply camera assistance before doing any overlay work. ESP performs
+    // multiple IL2CPP calls and rebuilds several Core Animation paths; it
+    // must never delay the input correction or make aim appear inactive.
     if (RavenSettings::aimEnabled) RavenAimbot::tick();
+    // Keep aim at the menu tick rate, but cap ESP geometry work to 15 Hz.
+    // Re-render immediately when a guide/ESP state changes so switches still
+    // take effect without making the overlay compete with camera input.
+    BOOL overlayEnabled = RavenSettings::espEnabled || RavenSettings::aimShowCircle ||
+                          RavenSettings::visFovCircle || RavenSettings::visCrosshair;
+    static double espRenderAt = 0.0;
+    static BOOL lastOverlayEnabled = NO;
+    double espNow = CACurrentMediaTime();
+    BOOL stateChanged = (overlayEnabled != lastOverlayEnabled);
+    if (stateChanged || (espNow - espRenderAt) >= (1.0 / 15.0)) {
+        espRenderAt = espNow;
+        lastOverlayEnabled = overlayEnabled;
+        [[RavenESP shared] render];
+    }
 }
 
 @end
