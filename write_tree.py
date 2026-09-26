@@ -40,7 +40,9 @@ def w(path, content):
 # ---------------------------------------------------------------------------
 w("Makefile", r"""
 TARGET = iphone:clang:latest:14.0
-ARCHS = arm64
+# iPhone 12 and newer use arm64-family hardware. Build both slices so the
+# signed IPA can select the compatible slice on arm64 and arm64e devices.
+ARCHS = arm64 arm64e
 
 include $(THEOS)/makefiles/common.mk
 
