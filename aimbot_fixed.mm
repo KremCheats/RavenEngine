@@ -416,7 +416,7 @@ static void* findBestTarget(void* localPlayer, int localTeam, void* camera, Vec3
         if (!worldToScreen(camera, bonePos, scr, &screen)) continue;
 
         float d = hypotf(screen.x - center.x, screen.y - center.y);
-        if (d > fovPx || d < AIM_DEADZONE_PX && p == g_lockedTarget) continue;
+        if (d > fovPx || (d < AIM_DEADZONE_PX && p == g_lockedTarget)) continue;
         if (p == g_lockedTarget) { lockedAim = bonePos; lockedVisible = true; g_lockedScreenD = d; }
         float score = d;
         if (RavenSettings::aimPriority == 1) score = worldDistance;
