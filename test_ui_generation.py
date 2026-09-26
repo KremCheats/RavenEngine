@@ -13,6 +13,8 @@ with tempfile.TemporaryDirectory() as td:
     esp = (Path(td) / "Src" / "ESP.mm").read_text()
     aimbot = (Path(td) / "Src" / "Aimbot.mm").read_text()
     settings = (Path(td) / "Src" / "Settings.mm").read_text()
+    license_header = (Path(td) / "Src" / "LicenseClient.h").read_text()
+    license_impl = (Path(td) / "Src" / "LicenseClient.mm").read_text()
 
     required_menu_fragments = [
         "self.ball.hidden  = (RavenSettings::uiOpenButton == 2);",
@@ -26,13 +28,23 @@ with tempfile.TemporaryDirectory() as td:
         assert fragment in menu, f"missing menu wiring: {fragment}"
 
     required_runtime_fragments = [
-        "if (RavenSettings::espBox) [self drawBox:boxRect color:boxColor];",
+        "if (RavenSettings::espBox) {",
+        "drawHexBox:boxRect",
+        "drawRoundBox:boxRect",
+        "drawGradientBox:boxRect",
+        "drawEliteBox:boxRect",
         "RavenSettings::aimMaxDist > 0.0f",
     ]
-    assert required_runtime_fragments[0] in esp, f"missing runtime wiring: {required_runtime_fragments[0]}"
-    assert required_runtime_fragments[1] in aimbot, f"missing runtime wiring: {required_runtime_fragments[1]}"
+    for fragment in required_runtime_fragments[:-1]:
+        assert fragment in esp, f"missing runtime wiring: {fragment}"
+    assert required_runtime_fragments[-1] in aimbot, f"missing runtime wiring: {required_runtime_fragments[-1]}"
 
     for name in ["aimPrediction", "espSkeleton", "visFovCircle", "wpnRapidFire", "miscBunnyHop"]:
         assert name in settings, f"missing persisted setting: {name}"
+
+    assert "Src/LicenseClient.mm" in (Path(td) / "Makefile").read_text()
+    assert "validateStoredAsync" in license_header and "deviceFingerprint" in license_header
+    assert "license.validate?batch=1" in license_impl
+    assert "NSUserDefaults" in license_impl and "CC_SHA256" in license_impl
 
 print("UI generation and control wiring checks passed")

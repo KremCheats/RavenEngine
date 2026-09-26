@@ -23,6 +23,11 @@
 
 import os
 
+# Generated files are written relative to the caller's working directory, but
+# source inputs must be resolved relative to this script.  CI and the tests
+# intentionally run the generator from a temporary output directory.
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
 def w(path, content):
     parent = os.path.dirname(path)
     if parent:
@@ -40,7 +45,7 @@ ARCHS = arm64
 include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = Raven
-Raven_FILES = Raven.mm Src/IL2CPP.mm Src/ESP.mm Src/Aimbot.mm Src/Menu.mm Src/Updater.mm Src/Settings.mm
+	Raven_FILES = Raven.mm Src/IL2CPP.mm Src/ESP.mm Src/Aimbot.mm Src/Menu.mm Src/Updater.mm Src/Settings.mm Src/LicenseClient.mm
 Raven_CFLAGS = -fobjc-arc -I./Src -std=c++17 -Wno-unused-function -Wno-deprecated-declarations
 Raven_CCFLAGS = -fobjc-arc -I./Src -std=c++17
 Raven_FRAMEWORKS = UIKit Foundation QuartzCore CoreGraphics
@@ -61,6 +66,7 @@ w("Raven.mm", r"""
 #import "Src/Updater.h"
 #import "Src/Logos.h"
 #import "Src/Settings.h"
+#import "Src/LicenseClient.h"
 
 __attribute__((constructor))
 static void raven_entry(void) {
@@ -71,6 +77,15 @@ static void raven_entry(void) {
                   RavenSettings::aimEnabled,
                   RavenSettings::espEnabled,
                   RavenSettings::aimActivation);
+        RavenLicense::validateStoredAsync(^(BOOL valid, NSString* reason) {
+            if (!valid) {
+                RavenSettings::aimEnabled = false;
+                RavenSettings::espEnabled = false;
+                RAVEN_LOG("license: rejected reason=%{public}@", reason ?: @"unknown");
+            } else {
+                RAVEN_LOG("license: validated");
+            }
+        });
         Updater::fetchAsync(kConfigURL);
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(4 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
@@ -235,6 +250,7 @@ namespace GameData {
     static const char* kMGetNeckTransform  = "get_NeckTransform";
     static const char* kMGetChestTransform = "get_ChestTransform";
     static const char* kMGetSpineTransform = "get_SpineTransform";
+    static const char* kMGetPelvisTransform = "get_PelvisTransform";
 
     static const char* kMGetRenderCamera  = "get_RenderCamera";
     static const char* kMGetPosition      = "get_position";
@@ -277,6 +293,103 @@ static const char* kConfigURL = "https://raw.githubusercontent.com/KremCheats/Ra
 """)
 
 # ---------------------------------------------------------------------------
+# Src/LicenseClient.h/.mm — portal validation contract.
+# ---------------------------------------------------------------------------
+w("Src/LicenseClient.h", r"""
+#ifndef RAVEN_LICENSE_CLIENT_H
+#define RAVEN_LICENSE_CLIENT_H
+
+#import <Foundation/Foundation.h>
+
+namespace RavenLicense {
+    typedef void (^ValidationCallback)(BOOL valid, NSString* reason);
+    NSString* deviceFingerprint(void);
+    void validateAsync(NSString* key, NSString* hwid, ValidationCallback callback);
+    void validateStoredAsync(ValidationCallback callback);
+}
+
+#endif
+""")
+
+w("Src/LicenseClient.mm", r"""
+#import "LicenseClient.h"
+#import "Common.h"
+#import "Settings.h"
+#import <UIKit/UIKit.h>
+#import <CommonCrypto/CommonDigest.h>
+
+#include <dispatch/dispatch.h>
+#include <cstring>
+
+namespace RavenLicense {
+
+// Keep this endpoint in one place. Release builds should point it at the
+// published portal domain; the sandbox preview URL is intentionally not
+// hard-coded into the tweak artifact.
+static NSString* const kValidationEndpoint = @"https://3000-ifms2n9u4w28defd9v650-2547e316.us4.manus.computer/api/trpc/license.validate?batch=1";
+
+NSString* deviceFingerprint(void) {
+    UIDevice* device = [UIDevice currentDevice];
+    NSString* vendorUUID = device.identifierForVendor.UUIDString;
+    if (vendorUUID.length) return vendorUUID.lowercaseString;
+
+    // Rare fallback for environments without identifierForVendor. It remains
+    // UUID-shaped so the portal contract stays identical.
+    NSString* material = [NSString stringWithFormat:@"raven-v1|%@|%@", device.model ?: @"unknown", device.systemVersion ?: @"unknown"];
+    unsigned char digest[CC_SHA256_DIGEST_LENGTH] = {0};
+    CC_SHA256(material.UTF8String, (CC_LONG)strlen(material.UTF8String), digest);
+    digest[6] = (digest[6] & 0x0f) | 0x50;
+    digest[8] = (digest[8] & 0x3f) | 0x80;
+    NSString* result = [NSString stringWithFormat:@"%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+                        digest[0], digest[1], digest[2], digest[3], digest[4], digest[5], digest[6], digest[7],
+                        digest[8], digest[9], digest[10], digest[11], digest[12], digest[13], digest[14], digest[15]];
+    return result;
+}
+
+void validateAsync(NSString* key, NSString* hwid, ValidationCallback callback) {
+    if (!key.length || !hwid.length || !callback) return;
+    NSURL* url = [NSURL URLWithString:kValidationEndpoint];
+    if (!url) { callback(NO, @"invalid_endpoint"); return; }
+
+    NSDictionary* input = @{ @"0": @{ @"json": @{ @"key": key, @"hwid": hwid } } };
+    NSError* jsonError = nil;
+    NSData* body = [NSJSONSerialization dataWithJSONObject:input options:0 error:&jsonError];
+    if (!body) { callback(NO, @"request_encoding_failed"); return; }
+
+    NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:url];
+    request.HTTPMethod = @"POST";
+    request.HTTPBody = body;
+    [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    [request setValue:@"Raven/1" forHTTPHeaderField:@"User-Agent"];
+
+    [[[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData* data, NSURLResponse* response, NSError* error) {
+        if (error || !data) { dispatch_async(dispatch_get_main_queue(), ^{ callback(NO, @"network_error"); }); return; }
+        NSError* parseError = nil;
+        NSDictionary* outer = [NSJSONSerialization JSONObjectWithData:data options:0 error:&parseError];
+        NSDictionary* result = outer[@"0"][@"result"][@"data"][@"json"];
+        BOOL valid = [result[@"valid"] boolValue];
+        NSString* reason = [result[@"reason"] isKindOfClass:[NSString class]] ? result[@"reason"] : (parseError ? @"invalid_response" : @"unknown");
+        dispatch_async(dispatch_get_main_queue(), ^{ callback(valid, reason); });
+    }] resume];
+}
+
+void validateStoredAsync(ValidationCallback callback) {
+    NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
+    NSString* key = [defaults stringForKey:@"raven.license.key"];
+    NSString* hwid = [defaults stringForKey:@"raven.license.hwid"];
+    if (!key.length) { if (callback) callback(NO, @"credentials_missing"); return; }
+    if (!hwid.length) {
+        hwid = deviceFingerprint();
+        [defaults setObject:hwid forKey:@"raven.license.hwid"];
+        [defaults synchronize];
+    }
+    validateAsync(key, hwid, callback);
+}
+
+}
+""")
+
+# ---------------------------------------------------------------------------
 # Src/Settings.h — unchanged.
 # ---------------------------------------------------------------------------
 w("Src/Settings.h", r"""
@@ -301,6 +414,7 @@ namespace RavenSettings {
     extern float aimCircleRadius;
     extern float aimCircleThickness;
     extern int   aimPriority;
+    extern int   aimCurve;
 
     extern bool  espEnabled;
     extern bool  espBox;
@@ -315,6 +429,7 @@ namespace RavenSettings {
     extern int   espVisibleColor;
     extern int   espSkeletonColor;
     extern int   espBoxColor;
+    extern int   espBoxStyle;
 
     extern bool  visCrosshair;
     extern int   visCrosshairStyle;
@@ -387,6 +502,7 @@ bool  aimShowCircle = true;
 float aimCircleRadius = 120.0f;
 float aimCircleThickness = 2.0f;
 int   aimPriority = 0;
+int   aimCurve = 1;
 
 bool  espEnabled = true;
 bool  espBox = true;
@@ -401,6 +517,7 @@ int   espEnemyColor = 0;
 int   espVisibleColor = 1;
 int   espSkeletonColor = 2;
 int   espBoxColor = 0;
+int   espBoxStyle = 0;
 
 bool  visCrosshair = true;
 int   visCrosshairStyle = 0;
@@ -460,8 +577,10 @@ void load() {
     espVisibleColor = (int)[d integerForKey:kKey(@"esp.visibleColor")];
     espSkeletonColor= (int)[d integerForKey:kKey(@"esp.skeletonColor")];
     espBoxColor     = (int)[d integerForKey:kKey(@"esp.boxColor")];
+    espBoxStyle     = (int)[d integerForKey:kKey(@"esp.boxStyle")];
     visCrosshairStyle = (int)[d integerForKey:kKey(@"vis.crosshairStyle")];
     aimPriority     = (int)[d integerForKey:kKey(@"aim.priority")];
+    aimCurve        = [d objectForKey:kKey(@"aim.curve")] ? (int)[d integerForKey:kKey(@"aim.curve")] : aimCurve;
     uiAccentColor   = (int)[d integerForKey:kKey(@"ui.accent")];
     uiOpenButton    = (int)[d integerForKey:kKey(@"ui.openButton")];
     uiPosition      = (int)[d integerForKey:kKey(@"ui.position")];
@@ -529,8 +648,10 @@ void save() {
     [d setInteger:espVisibleColor forKey:kKey(@"esp.visibleColor")];
     [d setInteger:espSkeletonColor forKey:kKey(@"esp.skeletonColor")];
     [d setInteger:espBoxColor forKey:kKey(@"esp.boxColor")];
+    [d setInteger:espBoxStyle forKey:kKey(@"esp.boxStyle")];
     [d setInteger:visCrosshairStyle forKey:kKey(@"vis.crosshairStyle")];
     [d setInteger:aimPriority forKey:kKey(@"aim.priority")];
+    [d setInteger:aimCurve forKey:kKey(@"aim.curve")];
     [d setInteger:uiAccentColor forKey:kKey(@"ui.accent")];
     [d setInteger:uiOpenButton forKey:kKey(@"ui.openButton")];
     [d setInteger:uiPosition forKey:kKey(@"ui.position")];
@@ -598,6 +719,7 @@ void resetToDefaults() {
     aimCircleRadius = 120.0f;
     aimCircleThickness = 2.0f;
     aimPriority = 0;
+    aimCurve = 1;
 
     espEnabled = true;
     espBox = true;
@@ -612,6 +734,7 @@ void resetToDefaults() {
     espVisibleColor = 1;
     espSkeletonColor = 2;
     espBoxColor = 0;
+    espBoxStyle = 0;
 
     visCrosshair = true;
     visCrosshairStyle = 0;
@@ -1146,9 +1269,14 @@ w("Src/ESP.h", r"""
 - (void)begin;
 - (void)end;
 - (void)render;
+- (NSArray<NSString*>*)snapshotPlayerRows;
 
 - (void)drawBox:(CGRect)r color:(UIColor*)c;
 - (void)drawCornerBox:(CGRect)r color:(UIColor*)c;
+- (void)drawRoundBox:(CGRect)r color:(UIColor*)c;
+- (void)drawHexBox:(CGRect)r color:(UIColor*)c;
+- (void)drawGradientBox:(CGRect)r color:(UIColor*)c;
+- (void)drawEliteBox:(CGRect)r color:(UIColor*)c;
 - (void)drawLine:(CGPoint)a to:(CGPoint)b color:(UIColor*)c;
 - (void)drawGuideCircle:(CGPoint)center radius:(CGFloat)radius color:(UIColor*)c;
 @end
@@ -1172,6 +1300,7 @@ static void*  g_playerMobViewClass = nullptr;
 static void*  g_cameraCtrlClass = nullptr;
 
 static void*  g_getTeamId = nullptr;
+static void*  g_getIsVisible = nullptr;
 static void*  g_getActiveMobView = nullptr;
 static void*  g_getMainCamera = nullptr;
 static void*  g_getRenderCamera = nullptr;
@@ -1183,6 +1312,8 @@ static void*  g_worldToScreen = nullptr;
 static void*  g_getHealth = nullptr;
 static void*  g_getIsDead = nullptr;
 static void*  g_getIsDowned = nullptr;
+static void*  g_getPlayerName = nullptr;
+static void*  g_getWeaponName = nullptr;
 
 static void*  g_transformClass = nullptr;
 static void*  g_cameraClass = nullptr;
@@ -1234,9 +1365,15 @@ static void resolveHandles(void) {
 
     if (g_playerRootClass) {
         g_getTeamId        = IL2CPP::resolveMethod(g_playerRootClass, GameData::kMGetTeamId, 0);
+        g_getIsVisible     = IL2CPP::resolveMethod(g_playerRootClass, GameData::kMGetIsVisible, 0);
         g_getActiveMobView = IL2CPP::resolveMethod(g_playerRootClass, GameData::kMGetActiveMobView, 0);
         g_getMainCamera    = IL2CPP::resolveMethod(g_playerRootClass, GameData::kMGetMainCamera, 0);
         g_playerTransformGetter = IL2CPP::resolveMethod(g_playerRootClass, GameData::kMGetTransform, 0);
+        g_getPlayerName   = IL2CPP::resolveMethod(g_playerRootClass, "get_Nickname", 0);
+        if (!g_getPlayerName) g_getPlayerName = IL2CPP::resolveMethod(g_playerRootClass, "get_PlayerName", 0);
+        if (!g_getPlayerName) g_getPlayerName = IL2CPP::resolveMethod(g_playerRootClass, "get_Name", 0);
+        g_getWeaponName   = IL2CPP::resolveMethod(g_playerRootClass, "get_WeaponName", 0);
+        if (!g_getWeaponName) g_getWeaponName = IL2CPP::resolveMethod(g_playerRootClass, "get_CurrentWeaponName", 0);
     }
     if (g_playerHealthClass) {
         g_getHealth   = IL2CPP::resolveMethod(g_playerHealthClass, GameData::kMGetHealth, 0);
@@ -1302,6 +1439,15 @@ static float invokeFloat(void* method, void* obj) {
     if (!method || !obj) return 0;
     void* r = IL2CPP::invokeMethod(method, obj, nullptr);
     return r ? *(float*)((uint8_t*)r + 0x10) : 0;
+}
+static NSString* invokeString(void* method, void* obj) {
+    if (!method || !obj) return nil;
+    void* r = IL2CPP::invokeMethod(method, obj, nullptr);
+    if (!ptrOk(r)) return nil;
+    int32_t len = *(int32_t*)((uint8_t*)r + 0x10);
+    if (len <= 0 || len > 64) return nil;
+    unichar* chars = (unichar*)((uint8_t*)r + 0x14);
+    return [NSString stringWithCharacters:chars length:(NSUInteger)len];
 }
 static void* invokePtr(void* method, void* obj) {
     if (!method || !obj) return nullptr;
@@ -1509,6 +1655,52 @@ static UIColor* espPaletteColor(int index) {
                 to:CGPointMake(CGRectGetMaxX(r) - cw, CGRectGetMaxY(r)) color:c];
     [self drawLine:CGPointMake(CGRectGetMaxX(r), CGRectGetMaxY(r))
                 to:CGPointMake(CGRectGetMaxX(r), CGRectGetMaxY(r) - ch) color:c];
+}
+
+- (void)drawRoundBox:(CGRect)r color:(UIColor*)c {
+    UIBezierPath* p = [UIBezierPath bezierPathWithRoundedRect:r cornerRadius:MAX(4.0, MIN(12.0, r.size.width * 0.16))];
+    CGMutablePathRef cur = CGPathCreateMutable();
+    if (self.boxes.path) CGPathAddPath(cur, NULL, self.boxes.path);
+    CGPathAddPath(cur, NULL, p.CGPath);
+    self.boxes.path = cur;
+    self.boxes.strokeColor = c.CGColor;
+    CGPathRelease(cur);
+}
+
+- (void)drawHexBox:(CGRect)r color:(UIColor*)c {
+    CGFloat cut = MAX(4.0, MIN(16.0, MIN(r.size.width, r.size.height) * 0.18));
+    UIBezierPath* p = [UIBezierPath bezierPath];
+    [p moveToPoint:CGPointMake(CGRectGetMinX(r) + cut, CGRectGetMinY(r))];
+    [p addLineToPoint:CGPointMake(CGRectGetMaxX(r) - cut, CGRectGetMinY(r))];
+    [p addLineToPoint:CGPointMake(CGRectGetMaxX(r), CGRectGetMinY(r) + cut)];
+    [p addLineToPoint:CGPointMake(CGRectGetMaxX(r), CGRectGetMaxY(r) - cut)];
+    [p addLineToPoint:CGPointMake(CGRectGetMaxX(r) - cut, CGRectGetMaxY(r))];
+    [p addLineToPoint:CGPointMake(CGRectGetMinX(r) + cut, CGRectGetMaxY(r))];
+    [p addLineToPoint:CGPointMake(CGRectGetMinX(r), CGRectGetMaxY(r) - cut)];
+    [p addLineToPoint:CGPointMake(CGRectGetMinX(r), CGRectGetMinY(r) + cut)];
+    [p closePath];
+    CGMutablePathRef cur = CGPathCreateMutable();
+    if (self.boxes.path) CGPathAddPath(cur, NULL, self.boxes.path);
+    CGPathAddPath(cur, NULL, p.CGPath);
+    self.boxes.path = cur;
+    self.boxes.strokeColor = c.CGColor;
+    CGPathRelease(cur);
+}
+
+- (void)drawGradientBox:(CGRect)r color:(UIColor*)c {
+    [self drawBox:r color:[c colorWithAlphaComponent:0.58]];
+    [self drawLine:CGPointMake(CGRectGetMinX(r), CGRectGetMinY(r))
+                to:CGPointMake(CGRectGetMaxX(r), CGRectGetMinY(r))
+             color:[c colorWithAlphaComponent:1.0]];
+    [self drawLine:CGPointMake(CGRectGetMinX(r), CGRectGetMaxY(r))
+                to:CGPointMake(CGRectGetMaxX(r), CGRectGetMaxY(r))
+             color:[c colorWithAlphaComponent:0.28]];
+}
+
+- (void)drawEliteBox:(CGRect)r color:(UIColor*)c {
+    [self drawRoundBox:r color:c];
+    CGRect inner = CGRectInset(r, 3.0, 3.0);
+    [self drawCornerBox:inner color:[c colorWithAlphaComponent:0.52]];
 }
 
 - (void)drawLine:(CGPoint)a to:(CGPoint)b color:(UIColor*)c {
@@ -1739,8 +1931,18 @@ static UIColor* espPaletteColor(int index) {
         CGRect boxRect = CGRectMake(headScreen.x - boxW/2.0, headScreen.y, boxW, boxH);
         UIColor* boxColor = espPaletteColor(bVisible ? RavenSettings::espVisibleColor
                                                      : RavenSettings::espEnemyColor);
-        if (RavenSettings::espCorner) [self drawCornerBox:boxRect color:boxColor];
-        else if (RavenSettings::espBox) [self drawBox:boxRect color:boxColor];
+        if (RavenSettings::espBox) {
+            switch (RavenSettings::espBoxStyle) {
+                case 1: [self drawHexBox:boxRect color:boxColor]; break;
+                case 2: [self drawRoundBox:boxRect color:boxColor]; break;
+                case 3: [self drawGradientBox:boxRect color:boxColor]; break;
+                case 4: [self drawEliteBox:boxRect color:boxColor]; break;
+                default:
+                    if (RavenSettings::espCorner) [self drawCornerBox:boxRect color:boxColor];
+                    else [self drawBox:boxRect color:boxColor];
+                    break;
+            }
+        }
 
         if (RavenSettings::espSnaplines) {
             [self drawLine:CGPointMake(screen.width / 2.0, screen.height)
@@ -1749,6 +1951,15 @@ static UIColor* espPaletteColor(int index) {
         }
 
         NSMutableString* line = [NSMutableString string];
+        if (RavenSettings::espName) {
+            NSString* name = invokeString(g_getPlayerName, p);
+            if (!name.length) name = [NSString stringWithFormat:@"Player %d", i];
+            [line appendFormat:@"%@ ", name];
+        }
+        if (RavenSettings::espWeapon) {
+            NSString* weapon = invokeString(g_getWeaponName, p);
+            if (weapon.length) [line appendFormat:@"[%@] ", weapon];
+        }
         if (RavenSettings::espHealth && ptrOk(healthComp) && g_getHealth) {
             float hp = invokeFloat(g_getHealth, healthComp);
             [line appendFormat:@"%.0f ", hp];
@@ -1764,6 +1975,34 @@ static UIColor* espPaletteColor(int index) {
     }
 
     self.labels.string = labels;
+}
+
+- (NSArray<NSString*>*)snapshotPlayerRows {
+    resolveHandles();
+    NSMutableArray<NSString*>* rows = [NSMutableArray array];
+    if (!g_playerRootClass) return rows;
+    void* local = IL2CPP::readStaticFieldObject(g_playerRootClass, GameData::kFldMyPlayer);
+    void* list = IL2CPP::readStaticFieldObject(g_playerRootClass, GameData::kFldAllPlayers);
+    if (!ptrOk(local) || !ptrOk(list)) return rows;
+    void* array = readPtr(list, GameData::List::Items);
+    int count = MIN(64, MAX(0, readInt32(list, GameData::List::Size)));
+    if (!ptrOk(array) || count <= 0) return rows;
+    void** items = (void**)((uint8_t*)array + GameData::Array::Data);
+    int localTeam = g_getTeamId ? invokeInt(g_getTeamId, local) : 0;
+    for (int i = 0; i < count; i++) {
+        void* p = items[i];
+        if (!ptrOk(p) || p == local) continue;
+        int team = g_getTeamId ? invokeInt(g_getTeamId, p) : 0;
+        if (team != 0 && team == localTeam) continue;
+        void* health = readPtr(p, GameData::PlayerRoot::PlayerHealth);
+        if (ptrOk(health) && ((g_getIsDead && invokeBool(g_getIsDead, health)) ||
+                              (g_getIsDowned && invokeBool(g_getIsDowned, health)))) continue;
+        NSString* name = invokeString(g_getPlayerName, p);
+        if (!name.length) name = [NSString stringWithFormat:@"Player %d", i];
+        NSString* state = (g_getIsVisible && invokeBool(g_getIsVisible, p)) ? @"VISIBLE" : @"HIDDEN";
+        [rows addObject:[NSString stringWithFormat:@"%@  •  %@", name, state]];
+    }
+    return rows;
 }
 
 @end
@@ -2671,6 +2910,7 @@ static void forceLandscape(void) {
         @{@"title":@"WEAPON",   @"key":@"weapon"},
         @{@"title":@"MISC",     @"key":@"misc"},
         @{@"title":@"PLAYERS",  @"key":@"players"},
+        @{@"title":@"INFO",     @"key":@"info"},
         @{@"title":@"SETTINGS", @"key":@"settings"},
     ];
 }
@@ -2840,6 +3080,7 @@ static void forceLandscape(void) {
     if ([tab isEqualToString:@"WEAPON"])   return @"Weapon behavior modifications";
     if ([tab isEqualToString:@"MISC"])     return @"Movement, utility and interface tweaks";
     if ([tab isEqualToString:@"PLAYERS"])  return @"Nearby player list";
+    if ([tab isEqualToString:@"INFO"])     return @"Raven account, device and runtime information";
     if ([tab isEqualToString:@"SETTINGS"]) return @"Menu configuration and about";
     return @"";
 }
@@ -3086,6 +3327,10 @@ static void forceLandscape(void) {
                             cb:^(NSInteger v){ RavenSettings::aimActivation = (int)v; RavenSettings::save(); }],
             [self rowSlider:@"Aim FOV" min:0 max:360 val:RavenSettings::aimFov cb:^(float v){ RavenSettings::aimFov = v; }],
             [self rowSlider:@"Smoothness" min:1 max:30 val:RavenSettings::aimSmooth cb:^(float v){ RavenSettings::aimSmooth = v; }],
+            [self rowSelector:@"Smoothing Curve"
+                         items:@[@"Linear", @"Exponential", @"Ease Out", @"Instant"]
+                      selected:RavenSettings::aimCurve
+                            cb:^(NSInteger v){ RavenSettings::aimCurve = (int)v; RavenSettings::save(); }],
         ]];
         UIView* advanced = [self card:@"ADVANCED" width:w rows:@[
             [self rowToggle:@"Prediction" on:RavenSettings::aimPrediction cb:^(BOOL v){ RavenSettings::aimPrediction = v; }],
@@ -3098,7 +3343,7 @@ static void forceLandscape(void) {
                       selected:RavenSettings::aimBone
                             cb:^(NSInteger v){ RavenSettings::aimBone = (int)v; RavenSettings::save(); }],
             [self rowSelector:@"Target Priority"
-                         items:@[@"Distance", @"Health", @"Threat"]
+                         items:@[@"Crosshair", @"Distance", @"Auto", @"Close to Me"]
                       selected:RavenSettings::aimPriority
                             cb:^(NSInteger v){ RavenSettings::aimPriority = (int)v; RavenSettings::save(); }],
             [self rowToggle:@"Visible Check" on:RavenSettings::aimVisCheck cb:^(BOOL v){ RavenSettings::aimVisCheck = v; }],
@@ -3117,6 +3362,10 @@ static void forceLandscape(void) {
             [self rowToggle:@"Enable ESP" on:RavenSettings::espEnabled cb:^(BOOL v){ RavenSettings::espEnabled = v; RavenSettings::save(); }],
             [self rowToggle:@"Box" on:RavenSettings::espBox cb:^(BOOL v){ RavenSettings::espBox = v; }],
             [self rowToggle:@"Corner Box" on:RavenSettings::espCorner cb:^(BOOL v){ RavenSettings::espCorner = v; }],
+            [self rowSelector:@"Box Style"
+                         items:@[@"Raven Pro", @"Raven Hex", @"Raven Round", @"Raven Gradient", @"Raven Elite"]
+                      selected:RavenSettings::espBoxStyle
+                            cb:^(NSInteger v){ RavenSettings::espBoxStyle = (int)v; RavenSettings::save(); }],
             [self rowToggle:@"Skeleton" on:RavenSettings::espSkeleton cb:^(BOOL v){ RavenSettings::espSkeleton = v; }],
             [self rowToggle:@"Snaplines" on:RavenSettings::espSnaplines cb:^(BOOL v){ RavenSettings::espSnaplines = v; }],
         ]];
@@ -3157,11 +3406,6 @@ static void forceLandscape(void) {
             [self rowSlider:@"Size" min:1 max:30 val:RavenSettings::visCrosshairSize cb:^(float v){ RavenSettings::visCrosshairSize = v; }],
             [self rowSlider:@"Thickness" min:1 max:6 val:RavenSettings::visCrosshairThickness cb:^(float v){ RavenSettings::visCrosshairThickness = v; }],
         ]];
-        UIView* fov = [self card:@"FOV CIRCLE" width:w rows:@[
-            [self rowToggle:@"Enable" on:RavenSettings::visFovCircle cb:^(BOOL v){ RavenSettings::visFovCircle = v; }],
-            [self rowSlider:@"Radius" min:20 max:400 val:RavenSettings::visFovRadius cb:^(float v){ RavenSettings::visFovRadius = v; }],
-            [self rowSlider:@"Thickness" min:1 max:6 val:RavenSettings::visFovThickness cb:^(float v){ RavenSettings::visFovThickness = v; }],
-        ]];
         UIView* world = [self card:@"WORLD VISUALS" width:w rows:@[
             [self rowToggle:@"Remove Fog" on:RavenSettings::visRemoveFog cb:^(BOOL v){ RavenSettings::visRemoveFog = v; }],
             [self rowToggle:@"Night Mode" on:RavenSettings::visNightMode cb:^(BOOL v){ RavenSettings::visNightMode = v; }],
@@ -3173,7 +3417,7 @@ static void forceLandscape(void) {
             [self rowToggle:@"No Smoke" on:RavenSettings::visNoSmoke cb:^(BOOL v){ RavenSettings::visNoSmoke = v; }],
             [self rowToggle:@"Better Textures" on:RavenSettings::visBetterTextures cb:^(BOOL v){ RavenSettings::visBetterTextures = v; }],
         ]];
-        return @[cross, fov, world, display];
+        return @[cross, world, display];
     }
 
     if ([tab isEqualToString:@"WEAPON"]) {
@@ -3214,13 +3458,44 @@ static void forceLandscape(void) {
     }
 
     if ([tab isEqualToString:@"PLAYERS"]) {
-        UILabel* empty = lbl(@"No player data available", 12, C_SEC, NO);
-        empty.textAlignment = NSTextAlignmentCenter;
-        empty.frame = CGRectMake(0, 0, w - 28, 60);
-        UIView* emptyRow = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 0, 60)];
-        [emptyRow addSubview:empty];
-        UIView* list = [self card:@"PLAYER LIST" width:w rows:@[emptyRow]];
+        NSArray<NSString*>* playerRows = [[RavenESP shared] snapshotPlayerRows];
+        NSMutableArray* rows = [NSMutableArray array];
+        if (playerRows.count == 0) {
+            UILabel* empty = lbl(@"No live enemy players detected", 12, C_SEC, NO);
+            empty.textAlignment = NSTextAlignmentCenter;
+            empty.frame = CGRectMake(0, 0, w - 28, 34);
+            UIView* emptyRow = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 0, 34)];
+            [emptyRow addSubview:empty];
+            [rows addObject:emptyRow];
+        } else {
+            for (NSInteger i = 0; i < (NSInteger)playerRows.count; i++)
+                [rows addObject:[self rowInfo:[NSString stringWithFormat:@"PLAYER %ld", (long)i + 1]
+                                      value:playerRows[i]]];
+        }
+        UIView* list = [self card:@"PLAYER LIST" width:w rows:rows];
         return @[list];
+    }
+
+    if ([tab isEqualToString:@"INFO"]) {
+        UIDevice* device = [UIDevice currentDevice];
+        NSString* key = [[NSUserDefaults standardUserDefaults] stringForKey:@"raven.license.maskedKey"];
+        if (!key.length) key = @"Not linked";
+        UIView* account = [self card:@"ACCOUNT & KEY" width:w rows:@[
+            [self rowInfo:@"Account" value:@"Raven user"],
+            [self rowInfo:@"License" value:key],
+            [self rowInfo:@"HWID" value:@"Server-bound"],
+        ]];
+        UIView* deviceCard = [self card:@"DEVICE" width:w rows:@[
+            [self rowInfo:@"Model" value:device.model ?: @"Unknown"],
+            [self rowInfo:@"System" value:device.systemVersion ?: @"Unknown"],
+            [self rowInfo:@"Screen" value:[NSString stringWithFormat:@"%.0f × %.0f", UIScreen.mainScreen.bounds.size.width, UIScreen.mainScreen.bounds.size.height]],
+        ]];
+        UIView* runtime = [self card:@"RUNTIME" width:w rows:@[
+            [self rowInfo:@"IL2CPP" value:@"Runtime hook layer"],
+            [self rowInfo:@"IsRealPlayer" value:@"Diagnostic only / unverified"],
+            [self rowInfo:@"Build" value:@"Raven Pro 1.0"],
+        ]];
+        return @[account, deviceCard, runtime];
     }
 
     if ([tab isEqualToString:@"SETTINGS"]) {
@@ -3325,6 +3600,12 @@ static void forceLandscape(void) {
         [self clampPanel];
     }
     if (!self.runtimeActive) return;
+    static double playerRefreshAt = 0.0;
+    double tickNow = CACurrentMediaTime();
+    if (self.panelOpen && self.activeTab == 5 && tickNow - playerRefreshAt >= 0.50) {
+        playerRefreshAt = tickNow;
+        [self reloadActiveTab];
+    }
     if (RavenSettings::espEnabled || RavenSettings::aimShowCircle ||
         RavenSettings::visFovCircle || RavenSettings::visCrosshair)
         [[RavenESP shared] render];
@@ -3345,14 +3626,19 @@ static void forceLandscape(void) {
 # ends up in git (and the tree the Theos build compiles) always carries
 # the fixed aimbot regardless of which workflow step ran last.
 # ---------------------------------------------------------------------------
-if os.path.exists("Aimbot_fixed.mm"):
-    with open("Aimbot_fixed.mm", "r") as _af:
+_aimbot_candidates = (
+    os.path.join(SCRIPT_DIR, "aimbot_fixed.mm"),
+    os.path.join(SCRIPT_DIR, "Aimbot_fixed.mm"),
+)
+_aimbot_source = next((p for p in _aimbot_candidates if os.path.isfile(p)), None)
+if _aimbot_source:
+    with open(_aimbot_source, "r") as _af:
         _aimbot_override = _af.read()
     with open("Src/Aimbot.mm", "w") as _af:
         _af.write(_aimbot_override)
     print("[write_tree] overrode Src/Aimbot.mm from Aimbot_fixed.mm")
 else:
-    print("[write_tree] WARNING: Aimbot_fixed.mm missing at repo root — using generated Aimbot.mm")
+    print("[write_tree] WARNING: aimbot_fixed.mm missing beside write_tree.py — using generated Aimbot.mm")
 
 print("done — full tree, 2026-09-24 phantom-target + camera-fallback pass + 2026-09-25 override")
 print()
