@@ -428,10 +428,24 @@ void validateAsync(NSString* key, NSString* hwid, ValidationCallback callback) {
     [[[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData* data, NSURLResponse* response, NSError* error) {
         if (error || !data) { dispatch_async(dispatch_get_main_queue(), ^{ callback(NO, @"network_error"); }); return; }
         NSError* parseError = nil;
-        NSDictionary* outer = [NSJSONSerialization JSONObjectWithData:data options:0 error:&parseError];
-        NSDictionary* result = outer[@"0"][@"result"][@"data"][@"json"];
-        BOOL valid = [result[@"valid"] boolValue];
-        NSString* reason = [result[@"reason"] isKindOfClass:[NSString class]] ? result[@"reason"] : (parseError ? @"invalid_response" : @"unknown");
+        id outer = [NSJSONSerialization JSONObjectWithData:data options:0 error:&parseError];
+        NSDictionary* envelope = nil;
+        if ([outer isKindOfClass:[NSArray class]]) {
+            id first = [(NSArray*)outer firstObject];
+            if ([first isKindOfClass:[NSDictionary class]]) envelope = first;
+        } else if ([outer isKindOfClass:[NSDictionary class]]) {
+            id batch = [(NSDictionary*)outer objectForKeyedSubscript:@"0"];
+            if ([batch isKindOfClass:[NSDictionary class]]) envelope = batch;
+            else if ([batch isKindOfClass:[NSArray class]]) {
+                id first = [(NSArray*)batch firstObject];
+                if ([first isKindOfClass:[NSDictionary class]]) envelope = first;
+            }
+        }
+        NSDictionary* result = [envelope[@"result"] isKindOfClass:[NSDictionary class]] ? envelope[@"result"] : nil;
+        NSDictionary* dataObject = [result[@"data"] isKindOfClass:[NSDictionary class]] ? result[@"data"] : nil;
+        NSDictionary* json = [dataObject[@"json"] isKindOfClass:[NSDictionary class]] ? dataObject[@"json"] : nil;
+        BOOL valid = [json[@"valid"] boolValue];
+        NSString* reason = [json[@"reason"] isKindOfClass:[NSString class]] ? json[@"reason"] : (parseError || !json ? @"invalid_response" : @"unknown");
         dispatch_async(dispatch_get_main_queue(), ^{ callback(valid, reason); });
     }] resume];
 }
